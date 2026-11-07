@@ -1,0 +1,2 @@
+# Preserve patch checksums; blank context markers are part of unified diff.
+*.patch -text -whitespace

@@ -1,0 +1,226 @@
+diff --git a/argilla-frontend/components/features/annotation/container/mode/FocusAnnotation.vue b/argilla-frontend/components/features/annotation/container/mode/FocusAnnotation.vue
+index 516150fe..c7d38e7a 100644
+--- a/argilla-frontend/components/features/annotation/container/mode/FocusAnnotation.vue
++++ b/argilla-frontend/components/features/annotation/container/mode/FocusAnnotation.vue
+@@ -1,5 +1,9 @@
+ <template>
+-  <VerticalResizable class="wrapper" :id="`${recordCriteria.datasetId}-r-v-rz`">
++  <VerticalResizable
++    class="wrapper"
++    data-annotation-focus
++    :id="`${recordCriteria.datasetId}-r-v-rz`"
++  >
+     <template #left>
+       <HorizontalResizable
+         :id="`${recordCriteria.datasetId}-r-h-rz`"
+diff --git a/argilla-frontend/components/features/annotation/container/questions/QuestionsForm.vue b/argilla-frontend/components/features/annotation/container/questions/QuestionsForm.vue
+index 48ce2310..831b7615 100644
+--- a/argilla-frontend/components/features/annotation/container/questions/QuestionsForm.vue
++++ b/argilla-frontend/components/features/annotation/container/questions/QuestionsForm.vue
+@@ -5,6 +5,7 @@
+     @submit.stop.prevent=""
+     v-click-outside="onClickOutside"
+     @click="focusOnFirstQuestionFromOutside"
++    @focusin="rememberChoiceFocus"
+     aria-label="Annotation Questions"
+   >
+     <div class="questions-form__content">
+@@ -164,6 +165,7 @@ export default {
+       interactionCount: 0,
+       isSubmittedTouched: false,
+       userComesFromOutside: false,
++      lastFocusedChoice: null,
+     };
+   },
+   computed: {
+@@ -221,7 +223,32 @@ export default {
+       }
+     },
+     focusOnFirstQuestionFromOutside(event) {
++      // Normalize native pointer focus for WebKit, including a click from an
++      // editor. Programmatic shortcut clicks keep the current keyboard focus.
++      if (
++        this.areActionsEnabled &&
++        !this.isSaving &&
++        this.record.id &&
++        this.$el.closest("[data-annotation-focus]") &&
++        event.target instanceof Element &&
++        event.target.matches('.input-button input[type="checkbox"]') &&
++        !event.target.disabled &&
++        event.isTrusted &&
++        document.activeElement !== event.target &&
++        !event.defaultPrevented &&
++        event.button === 0 &&
++        !event.ctrlKey &&
++        !event.altKey &&
++        !event.metaKey &&
++        !event.shiftKey
++      )
++        event.target.focus({ preventScroll: true });
++
++      if (this.restoreChoiceFocus(event)) return;
++      if (this.lastFocusedChoice && this.$el.closest("[data-annotation-focus]"))
++        return;
+       if (!this.userComesFromOutside) return;
++      if (!this.isNonInteractiveClick(event)) return;
+       if (event.srcElement.id || event.srcElement.getAttribute("for")) return;
+ 
+       this.userComesFromOutside = false;
+@@ -231,14 +258,98 @@ export default {
+       event.preventDefault();
+       this.updateQuestionAutofocus(0);
+     },
+-    onClickOutside() {
++    rememberChoiceFocus(event) {
++      const question = this.record.questions[this.autofocusPosition];
++      const isChoiceQuestion =
++        question?.isSingleLabelType ||
++        question?.isMultiLabelType ||
++        question?.isRatingType;
++
++      this.lastFocusedChoice =
++        isChoiceQuestion &&
++        event.target.matches('.input-button input[type="checkbox"]')
++          ? event.target
++          : null;
++    },
++    isNonInteractiveClick(event) {
++      return (
++        event.target instanceof Element &&
++        !event.defaultPrevented &&
++        event.button === 0 &&
++        !event.ctrlKey &&
++        !event.altKey &&
++        !event.metaKey &&
++        !event.shiftKey &&
++        !event.target.closest(
++          'input, textarea, select, button, a, label, summary, [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="combobox"], [role="textbox"], [role="menuitem"], [role="option"], .search-area'
++        )
++      );
++    },
++    restoreChoiceFocus(event) {
++      const choice = this.lastFocusedChoice;
++      if (
++        !this.$el.closest("[data-annotation-focus]") ||
++        !this.areActionsEnabled ||
++        this.isSaving ||
++        !this.record.id ||
++        !choice ||
++        !this.$el.contains(choice) ||
++        choice.disabled ||
++        choice.closest('[inert], [aria-hidden="true"]') ||
++        !choice.getClientRects().length ||
++        window.getComputedStyle(choice).visibility === "hidden" ||
++        !this.isNonInteractiveClick(event)
++      )
++        return false;
++
++      // The project uses class-based overlays as well as ARIA widgets.
++      const overlays = document.querySelectorAll(
++        '.modal-mask, .dropdown__content, .span-entity__dropdown, [role="dialog"], [role="menu"], [role="listbox"], [aria-modal="true"]'
++      );
++      if (
++        Array.from(overlays).some(
++          (overlay) =>
++            overlay.getClientRects().length &&
++            window.getComputedStyle(overlay).visibility !== "hidden"
++        )
++      )
++        return false;
++
++      // Do not take focus from an editor or another intentional control.
++      const active = document.activeElement;
++      if (active !== document.body && active !== choice) return false;
++
++      const selection = window.getSelection();
++      const ranges =
++        selection && !selection.isCollapsed
++          ? Array.from({ length: selection.rangeCount }, (_, index) =>
++              selection.getRangeAt(index).cloneRange()
++            )
++          : [];
++      choice.focus({ preventScroll: true });
++      // WebKit clears ordinary text selection when focusing a checkbox.
++      if (ranges.length && selection.isCollapsed) {
++        selection.removeAllRanges();
++        ranges.forEach((range) => selection.addRange(range));
++      }
++      this.userComesFromOutside = false;
++      return true;
++    },
++    onClickOutside(event) {
++      if (this.restoreChoiceFocus(event)) return;
+       this.autofocusPosition = null;
+       this.userComesFromOutside = true;
+     },
+     handleGlobalKeys(event) {
+-      const { code, ctrlKey, metaKey, shiftKey, key } = event;
++      const { code, ctrlKey, metaKey, shiftKey, altKey, key } = event;
+ 
+-      if (shiftKey) return;
++      if (
++        shiftKey ||
++        altKey ||
++        event.isComposing ||
++        ((ctrlKey || metaKey) && code !== "KeyS")
++      )
++        return;
+ 
+       if (code === "Tab" && this.userComesFromOutside) {
+         this.focusOnFirstQuestion(event);
+diff --git a/argilla-frontend/components/features/annotation/container/questions/form/rating/RatingShortcuts.vue b/argilla-frontend/components/features/annotation/container/questions/form/rating/RatingShortcuts.vue
+index 39b5463d..0cb51169 100644
+--- a/argilla-frontend/components/features/annotation/container/questions/form/rating/RatingShortcuts.vue
++++ b/argilla-frontend/components/features/annotation/container/questions/form/rating/RatingShortcuts.vue
+@@ -1,5 +1,5 @@
+ <template>
+-  <div @keydown.prevent="answerRatingFor">
++  <div @keydown="answerRatingFor">
+     <slot></slot>
+   </div>
+ </template>
+@@ -36,16 +36,27 @@ export default {
+       this.timer = null;
+     },
+     answerRatingFor(event) {
++      if (
++        event.shiftKey ||
++        event.ctrlKey ||
++        event.metaKey ||
++        event.altKey ||
++        event.isComposing
++      )
++        return;
++
+       if (this.timer) clearTimeout(this.timer);
+       if (event.key == "Tab") return;
+ 
+       if (event.code == "Space") {
++        event.preventDefault();
+         return document.activeElement.click();
+       }
+ 
+-      this.keyCode += event.key;
++      if (!/^\d$/.test(event.key)) return this.reset();
+ 
+-      if (isNaN(this.keyCode)) return this.reset();
++      event.preventDefault();
++      this.keyCode += event.key;
+ 
+       if (this.hasJustOneCoincidence(this.keyCode)) {
+         return this.selectByKeyCode(this.keyCode);
+diff --git a/argilla-frontend/components/features/annotation/container/questions/form/shared-components/label-selection/LabelSelection.component.vue b/argilla-frontend/components/features/annotation/container/questions/form/shared-components/label-selection/LabelSelection.component.vue
+index 910b3420..19646504 100644
+--- a/argilla-frontend/components/features/annotation/container/questions/form/shared-components/label-selection/LabelSelection.component.vue
++++ b/argilla-frontend/components/features/annotation/container/questions/form/shared-components/label-selection/LabelSelection.component.vue
+@@ -262,7 +262,9 @@ export default {
+         $event.key === "ArrowDown" ||
+         $event.shiftKey ||
+         $event.ctrlKey ||
+-        $event.metaKey
++        $event.metaKey ||
++        $event.altKey ||
++        $event.isComposing
+       )
+         return;
+ 
