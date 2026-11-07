@@ -2,8 +2,8 @@
 
 **Проект:** Argilla v2.8.0 — shortcuts `1/2/3` после клика мышью вне вариантов ответа **на той же записи**.
 **Дата актуализации задания:** 2026-11-07.
-**Статус:** Шаг 3 DONE — расширенная регрессия: Chromium/WebKit 41 PASS / 1 SKIP, полный Jest 508 PASS / 2 прежних SKIP, линтер PASS. Найденная WebKit-регрессия шага 2 исправлена и проверена. Firefox 132 BLOCKED из-за исходного CSS.highlights; корпоративная установка не менялась.
-**Текущий этап:** Шаг 4 — подготовлен постоянный ручной стенд без Inspector; результат пользовательской приёмки ожидается.
+**Статус:** Шаг 4 PARTIAL — пользователь обнаружил потерю shortcuts при быстрых кликах по тексту. Причина найдена и исправлена; расширенный ручной стенд содержит 10 синтетических записей без Notes. Повторная приёмка ожидается. Полный промежуточный прогон Chromium/WebKit: 53 PASS / 1 SKIP; финальная очередь: 2 PASS. Полный Jest 510 PASS / 2 прежних SKIP; линтер PASS. Firefox 132 по-прежнему BLOCKED из-за исходного CSS.highlights; корпоративная установка не менялась.
+**Текущий этап:** Шаг 4 — исправления по обратной связи и проверка очереди синтетических текстов.
 
 ## Уточнённый scope (НЕ ПЕРЕПУТАТЬ)
 
@@ -26,8 +26,8 @@
 | Коммит комплекта документов | `4f5a9bd47af05e9fb02ec1e5619e3376e5a74e75` — проверен на GitHub; последующие записи журнала см. в `git log -1` |
 | VS Code Sync настроен | Upstream tracking настроен, push документов и проверка удалённого SHA — PASS; кнопка Sync в UI — NOT RUN |
 | Регрессионный тест до патча | `ea79513d` — 6 ожидаемых FAIL после click-away, 1 PASS восстановления после клика по ответу |
-| Тесты | До патча: Chromium 6 FAIL / 1 PASS. Итог шага 3: Chromium 21 PASS; WebKit 20 PASS / 1 SKIP; Jest 508 PASS / 2 прежних SKIP, 54 suites; ESLint PASS |
-| Коммиты исправления | Шаг 2: `6fd9d2fa611c5caf3a616233515a4a8097861e39`; шаг 3 (WebKit и тесты): `f58ca0c74a48292387e57e5129c44e1784f8b04c` — локальный, Sync ожидается |
+| Тесты | До патча: Chromium 6 FAIL / 1 PASS. Шаг 3: Chromium 21 PASS; WebKit 20 PASS / 1 SKIP. Шаг 4: общий промежуточный прогон 53 PASS / 1 SKIP; финальная очередь Chromium/WebKit 2 PASS; Jest 510 PASS / 2 прежних SKIP, 54 suites; ESLint PASS |
+| Коммиты исправления | Шаг 2: `6fd9d2fa611c5caf3a616233515a4a8097861e39`; шаг 3: `f58ca0c74a48292387e57e5129c44e1784f8b04c`; уточнение по быстрым кликам: `43e8a1ec`; очередь ручного стенда: `e849d0af` — локальные, Sync ожидается |
 | Последний завершённый этап | Шаг 3 — автоматизированная регрессия; Firefox BLOCKED, пользовательская приёмка NOT RUN |
 
 ## Чеклист
@@ -41,6 +41,33 @@
 - [ ] Шаг 6 — деплой только с разрешения (опционально)
 
 ## История (новые записи добавлять сверху)
+
+### 2026-11-08 — Шаг 4: быстрые клики, возврат из редактора и 10 текстов
+
+**Статус:** PARTIAL — исходная пользовательская приёмка выявила FAIL при серии кликов; новая пользовательская приёмка ещё не выполнена.
+**Наблюдения/причина:** двойной/тройной клик выделяет слово/абзац. Guard непустого Selection ошибочно запрещал возврат фокуса текущему варианту. Два новых Chromium-теста с настоящими `clickCount=2/3` и координатами символа дали **2 ожидаемых FAIL до исправления**, без смены записи. В WebKit фокус checkbox очищает обычное выделение: теперь диапазоны сохраняются и восстанавливаются только при таком очищении. Новых keydown listeners и изменений auto-submit нет.
+
+После редактирования Notes прежний вариант намеренно забывается, чтобы цифры оставались вводом редактора. Проверка явного возврата кликом по ответу нашла отдельную WebKit-проблему: native label activation даёт trusted click на input с `detail=0`, а активным остаётся BODY. Теперь такой реальный клик фокусирует выбранный пользователем checkbox до штатного change; программный `.click()` фокус не перемещает. E2E проверяет ввод `123`, явный возврат к ответу, click-away и `3`. Что именно происходило у пользователя после Notes, пока не уточнено; восстановление после простого выхода из редактора без выбора вопроса не заявляется.
+
+**Сделано:** [QuestionsForm.vue](../argilla-frontend/components/features/annotation/container/questions/QuestionsForm.vue) — два уточнения управления фокусом; [unit-тесты](../argilla-frontend/components/features/annotation/container/questions/QuestionsForm.spec.js) — сохранение Selection и trusted label click после редактирования; [E2E](../argilla-frontend/e2e/annotation-mode-page/click-away-annotation-mode.spec.ts) — быстрые клики, Notes и 50 циклов на одной записи. [Общий fixture](../argilla-frontend/e2e/annotation-mode-page/click-away.fixture.ts) допускает конфигурацию без Notes. [Ручной fixture](../argilla-frontend/e2e/manual/manual-records.fixture.ts) содержит 10 вымышленных текстов и ответы в памяти; [ручная сессия](../argilla-frontend/e2e/manual/annotation.manual.ts) использует его вместо одной неполной записи. [Smoke-тест очереди](../argilla-frontend/e2e/annotation-mode-page/manual-records.spec.ts) проверяет один вопрос без Notes, соседние записи, ровно десять отправок и чтение ответов через Submitted после reload. Производственные загрузка/переходы/API/backend/сохранение/auto-submit не менялись.
+
+**Проверено (из `argilla-frontend`, Node 20 в PATH):**
+
+- `npm.cmd run e2e:silent -- click-away-annotation-mode.spec.ts --project=chromium --grep 'rapid clicks' --workers=1 --retries=0 --reporter=line --trace=on --output "$env:TEMP/argilla-rapid-glyph-before"` → **2 ожидаемых FAIL до патча**: нужный No не выбран после выделения текста.
+- `npm.cmd run e2e:silent -- click-away-annotation-mode.spec.ts manual-records.spec.ts --project=chromium --project=webkit --grep 'editing Notes|50 click-away|manual queue' --workers=2 --retries=0 --reporter=line --trace=on --output "$env:TEMP/argilla-queue-and-focus"` → **6 PASS**, в том числе по 50 click-away циклов и 10 отправленных текстов на браузер.
+- `npm.cmd test -- --runInBand` → **510 PASS / 2 прежних SKIP**, 54 suites, 11 snapshots. После уточнения unit-кейса `detail=0`: `npm.cmd test -- --runInBand components/features/annotation/container/questions/QuestionsForm.spec.js` → **43 PASS**.
+- `npx.cmd eslint --no-ignore components/features/annotation/container/questions/QuestionsForm.vue components/features/annotation/container/questions/QuestionsForm.spec.js e2e/annotation-mode-page/click-away-annotation-mode.spec.ts e2e/annotation-mode-page/click-away.fixture.ts e2e/manual/annotation.manual.ts e2e/manual/manual-records.fixture.ts e2e/annotation-mode-page/manual-records.spec.ts` → **PASS**. Полный `npm.cmd run lint -- --rule 'prettier/prettier: [error, {endOfLine: auto}]' --format json --output-file "$env:TEMP/argilla-feedback-final-lint.json"` → **0 ошибок / 0 предупреждений**. Override касается прежних CRLF; настройки проекта не менялись.
+- `git diff --exit-code -- argilla-frontend/package.json argilla-frontend/package-lock.json` → **PASS**: зависимости и scripts в этом уточнении не менялись.
+
+**Общий browser-прогон:** `npm.cmd run e2e:silent -- click-away-annotation-mode.spec.ts manual-records.spec.ts --project=chromium --project=webkit --workers=2 --retries=0 --reporter=line --trace=on --output "$env:TEMP/argilla-feedback-final-e2e"` → **53 PASS / 1 SKIP** за 5,7 минуты: Chromium 27 PASS, WebKit 26 PASS / 1 прежний numpad SKIP. Предыдущая промежуточная попытка 50 циклов была испорчена изменением тестового файла во время Nuxt-прогона (HMR); общий прогон выполнен без редактирования frontend.
+
+В общем прогоне был поздний синтетический read-запрос `records/search` при закрытии страницы отдельного теста с намеренным 501 на submit; локальный backend отказал в соединении. Попытка дождаться follow-up search и перенос fallback на BrowserContext дали 4 PASS (`argilla-queue-final-isolation`), но warning сохранился. Попытка `networkidle` → FAIL по 30-секундному timeout в Nuxt dev; прогон остановлен Ctrl+C. Эти ожидания удалены. Избыточный тест намеренно неуспешного submit снят: успешный выбор без Notes и ровно одна отправка цифрой покрыты очередью из десяти записей. Fallback BrowserContext оставлен как дополнительный guard; frontend не менялся при этих уточнениях.
+
+**Финальный smoke:** `npm.cmd run e2e:silent -- manual-records.spec.ts --project=chromium --project=webkit --workers=2 --retries=0 --reporter=line --trace=on --output "$env:TEMP/argilla-manual-queue-final"` → **2 PASS**, warning proxy отсутствует. Проверены ровно 10 writes, Next/Previous, Submitted, reload. Финальный targeted ESLint трёх уточнённых TS-файлов → PASS. После удаления избыточного теста в текущем наборе 25 click-away сценариев + один queue smoke на браузер; полный набор повторно NOT RUN — исходное Vue-исправление не менялось с успешного общего прогона, финальное изменение fixture проверено целевым smoke.
+**Ручной UI:** `npm.cmd run annotation:manual` → PASS подготовки: видимый Chromium открыт, вход выполнен, первый из десяти текстов виден, Notes отсутствует, выведено `MANUAL READY`. Сессия оставлена работающей без Inspector и лимита времени. Пользовательская повторная приёмка NOT RUN.
+**Git:** `fix/annotation-shortcuts-click-away`; исправление — `43e8a1ec`, ручная очередь — `e849d0af`. Перед каждым коммитом просмотрены staged diff, `git diff --cached --check` и очевидные шаблоны секретов — PASS. Push не выполнялся. Пользовательский diff STEPS сохранён отдельно. Для отправки: VS Code → Source Control → Sync Changes.
+**Риски/границы:** ответы живут только до перезапуска стенда. Работа реального backend и корпоративная сборка UNKNOWN; различия оформления и отсутствие Notes сами по себе не подтверждают идентичность кода. Firefox-блокер сохраняется.
+**Следующий шаг:** пользователь проверяет вручную клики и 10 текстов в открытом окне по обновлённому TEST_PLAN; шаг 4 до этого не отмечать DONE.
 
 ### 2026-11-07 — Шаг 4: подготовка удобного ручного стенда
 
