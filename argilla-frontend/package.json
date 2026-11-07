@@ -17,6 +17,7 @@
     "e2e": "npx playwright test --ui",
     "e2e:report": "npx playwright show-report",
     "e2e:silent": "npx playwright test",
+    "annotation:manual": "cross-env PWDEBUG=0 playwright test --config playwright.manual.config.ts",
     "test": "jest --colors",
     "test:watch": "jest --colors --watchAll"
   },
