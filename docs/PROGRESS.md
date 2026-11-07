@@ -2,8 +2,8 @@
 
 **Проект:** Argilla v2.8.0 — shortcuts `1/2/3` после клика мышью вне вариантов ответа **на той же записи**.
 **Дата актуализации задания:** 2026-11-07.
-**Статус:** PARTIAL — техническая подготовка этапа 0 завершена: baseline и рабочая ветка доступны на GitHub, автор настроен локально, документы закоммичены и синхронизированы. Ручная проверка кнопки VS Code Sync пользователем ещё не выполнялась. Исходники Argilla и корпоративная установка не менялись.
-**Текущий этап:** Шаг 0 — GitHub + VS Code + baseline для отката.
+**Статус:** Шаг 1 DONE — click-away воспроизведён на исходном frontend v2.8.0 в Chromium, причина подтверждена браузерными событиями. Добавлены падающие регрессионные тесты и положительная контрольная проверка. Исправление поведения ещё не внесено; корпоративная установка не менялась.
+**Текущий этап:** Шаг 2 — минимальное frontend-исправление.
 
 ## Уточнённый scope (НЕ ПЕРЕПУТАТЬ)
 
@@ -11,7 +11,7 @@
 - После клика вне ответов цифровые shortcuts прекращают работать; ещё один клик по фону не помогает; клик **по одному из вариантов ответа** восстанавливает управление.
 - Не нужна смена/подмена текста, prefetch, навигация по записям или большое число разметок для воспроизведения.
 - Самопроизвольное появление другого текста **целиком вне scope**: не диагностировать и не исправлять.
-- Текущая гипотеза: локальный `keydown` зависит от фокуса внутри вариантов. Её требуется подтвердить до патча.
+- Подтверждено в Chromium: после click-away фокус переходит с checkbox на `BODY`, `autofocusPosition` становится `null`, путь `keydown` больше не включает контейнер вариантов с локальным обработчиком.
 
 ## Заполнить агенту при первом запуске
 
@@ -25,13 +25,14 @@
 | Рабочая ветка | `fix/annotation-shortcuts-click-away` |
 | Коммит комплекта документов | `4f5a9bd47af05e9fb02ec1e5619e3376e5a74e75` — проверен на GitHub; последующие записи журнала см. в `git log -1` |
 | VS Code Sync настроен | Upstream tracking настроен, push документов и проверка удалённого SHA — PASS; кнопка Sync в UI — NOT RUN |
-| Тесты | NOT RUN |
-| Последний завершённый этап | Техническая часть этапа 0; пользовательская проверка кнопки Sync — NOT RUN |
+| Регрессионный тест до патча | `ea79513d` — 6 ожидаемых FAIL после click-away, 1 PASS восстановления после клика по ответу |
+| Тесты | Jest: 17 PASS; Chromium E2E: 6 FAIL / 1 PASS на исходном frontend; новый код тестов проходит ESLint |
+| Последний завершённый этап | Шаг 1 — воспроизведение и диагностика; пользовательская проверка кнопки VS Code Sync — NOT RUN |
 
 ## Чеклист
 
-- [ ] Шаг 0 — GitHub, Sync Changes, baseline
-- [ ] Шаг 1 — воспроизведение click-away на той же записи
+- [x] Шаг 0 — GitHub, tracking, push и baseline готовы; инструкция Commit → Sync дана, ручной клик по кнопке — NOT RUN
+- [x] Шаг 1 — воспроизведение click-away на той же записи
 - [ ] Шаг 2 — минимальное frontend-исправление
 - [ ] Шаг 3 — авто-регрессионные тесты
 - [ ] Шаг 4 — ручные проверки кликов и регрессий
@@ -39,6 +40,29 @@
 - [ ] Шаг 6 — деплой только с разрешения (опционально)
 
 ## История (новые записи добавлять сверху)
+
+### 2026-11-07 — Шаг 1: click-away воспроизведён, причина подтверждена
+
+**Статус:** DONE для диагностики. Исправление ещё не внесено, регрессионные тесты намеренно красные.
+**План и результат:** исследованы реальные компоненты и global listeners, поднят локальный frontend, подготовлена синтетическая запись и воспроизведение настоящими кликами Playwright. Создан тестовый коммит `ea79513d` (`test: reproduce shortcut loss after background click`).
+**Причина:** [LabelSelection](../argilla-frontend/components/features/annotation/container/questions/form/shared-components/label-selection/LabelSelection.component.vue) слушает `keydown` только на своём контейнере. [QuestionsForm](../argilla-frontend/components/features/annotation/container/questions/QuestionsForm.vue) через `v-click-outside` обнуляет `autofocusPosition` и ставит `userComesFromOutside = true`; существующий document listener обрабатывает Tab/Enter/Backspace/сохранение, но не выбор цифрового варианта. Повторный фоновый клик не проходит через обработчик клика самой формы. Watcher `isFocused` в LabelSelection возвращает фокус только при изменении пропа на true. Клик по варианту штатно восстанавливает фокус.
+**Браузерные данные:** до click-away `activeElement = INPUT#decision_yes`, индекс вопроса `1`, `userComesFromOutside = false`; путь клавиши включает `DIV.container` и `FORM.questions-form`. После клика по тексту или фону: `focusout: INPUT#decision_yes`, `activeElement = BODY`, индекс `null`, `userComesFromOutside = true`, путь `BODY → HTML → HTMLDocument → Window`. Это подтверждено во всех 6 вариантах. Доступ к Vue instance используется только для чтения диагностического состояния, фокус искусственно не подменяется.
+**Изменённые файлы:** [E2E](../argilla-frontend/e2e/annotation-mode-page/click-away-annotation-mode.spec.ts), [синтетические API-заглушки](../argilla-frontend/e2e/annotation-mode-page/click-away.fixture.ts), журнал и результаты в [TEST_PLAN](./TEST_PLAN.md). Производственные Vue-компоненты и backend не редактировались.
+**Безопасность теста:** loopback URL проверяется перед открытием страницы, все API перехвачены, немокированные запросы заблокированы. На странице ровно одна синтетическая запись и один single-label вопрос с тремя вариантами; дополнительный обязательный текстовый вопрос оставлен пустым, чтобы штатный auto-submit не переключал запись. Проверены неизменность URL/текста, отсутствие response writes и немокированных API до проверки выбранного варианта.
+**Тесты (рабочая папка `argilla-frontend`):**
+
+- `npm run e2e:silent -- click-away-annotation-mode.spec.ts --project=chromium --workers=1 --retries=0 --reporter=line --trace=on` → ожидаемый FAIL: 6 проверок цифр после клика по тексту/фону; контроль восстановления по ответу → PASS. Каждый из 6 тестов сначала проверяет успешный выбор клавишей до click-away. Ошибка именно `Expected: checked / Received: unchecked`, не вход/настройка стенда. Последний полный прогон — 6 FAIL / 1 PASS.
+- `npm test -- --runInBand --runTestsByPath components/features/annotation/container/questions/form/shared-components/label-selection/labelSelection.component.spec.js components/features/annotation/container/questions/form/rating/ratingMonoSelection.component.spec.js` → PASS: 17 тестов, 2 suites.
+- `npx eslint --no-ignore e2e/annotation-mode-page/click-away.fixture.ts e2e/annotation-mode-page/click-away-annotation-mode.spec.ts` → PASS. `--no-ignore` необходим, потому что штатный линтер исключает e2e.
+- `npx prettier --check e2e/annotation-mode-page/click-away.fixture.ts e2e/annotation-mode-page/click-away-annotation-mode.spec.ts` → PASS перед финальным дополнением диагностики; после дополнения выполнен Prettier и повторный ESLint → PASS.
+- `npm run lint` → FAIL: 54 001 ошибка исходных CRLF в Windows checkout. Повтор с `npm run lint -- --rule 'prettier/prettier: [error, {endOfLine: auto}]' --format json --output-file <временный отчёт>` → PASS, exit 0. Исходные файлы и конфигурация линтера не переформатировались.
+- `git diff --exit-code -- argilla-frontend/package.json argilla-frontend/package-lock.json` из корня → PASS: зависимости проекта не менялись.
+
+**Окружение:** Node v20.18.1 / npm 10.8.2 перенесены в `$env:TEMP/argilla-focus-tools/node-v20.18.1-win-x64`, ZIP проверен по официальному SHA256; системный PATH не менялся. Перед командами временно добавлять эту папку в PATH текущего терминала либо использовать свой Node 20. Chromium Playwright 1148 установлен через `npx playwright install chromium`. `npm ci` без legacy-флага не принимает исходный lockfile (`buffer`); установка без lockfile привела к несовместимому Webpack 5. Рабочее окружение получено через `npm ci --legacy-peer-deps --no-audit --no-fund`, фактический Webpack 4.47.0; frontend собран `npm run dev` и проверен тестами. Исходные старые E2E helpers содержат устаревшие login selectors и ответы API; новый сценарий их обходит, не изменяя существующие тесты.
+**Ручной UI:** отдельная пользовательская приёмка NOT RUN; клики выполнены автоматизированно в настоящем Chromium. Firefox/WebKit, поля ввода, меню, модалки и 30–50 повторений — этапы 3–4, NOT RUN. Trace содержит только синтетические данные и хранится локально в игнорируемых результатах тестов; в Git не включается.
+**Git:** `fix/annotation-shortcuts-click-away`, тестовый commit `ea79513d`; baseline `78cb5183` сохранён. Итоговый SHA журнала смотреть в `git log -1`.
+**Риски:** E2E сейчас намеренно FAIL до патча. Корпоративная сборка по-прежнему неизвестна. Не выбирать произвольный первый вопрос после click-away: воспроизведение использует второй вопрос.
+**Следующий шаг:** этап 2 — минимальный механизм для текущего вопроса с защитой ввода, меню/модалок и одиночной обработкой; повторить те же 6 тестов до зелёного результата. Бизнес-логику auto-submit и сохранения не менять.
 
 ### 2026-11-07 — Шаг 0: docs-коммит и синхронизация
 
