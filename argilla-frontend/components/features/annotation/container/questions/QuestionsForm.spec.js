@@ -53,6 +53,8 @@ describe("QuestionsForm click-away focus", () => {
   const click = (target, overrides = {}) => ({
     target,
     button: 0,
+    isTrusted: true,
+    detail: 1,
     ...overrides,
   });
 
@@ -91,9 +93,25 @@ describe("QuestionsForm click-away focus", () => {
     host.appendChild(editor);
     editor.focus();
     const focus = jest.spyOn(choice, "focus");
-    wrapper.vm.focusOnFirstQuestionFromOutside(click(choice));
+    wrapper.vm.focusOnFirstQuestionFromOutside(
+      click(choice, { isTrusted: false, detail: 0 })
+    );
     expect(focus).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(editor);
+  });
+
+  it("focuses an intentionally clicked choice after editing without selecting it", () => {
+    const editor = document.createElement("textarea");
+    editor.value = "123";
+    wrapper.element.appendChild(editor);
+    editor.focus();
+    expect(wrapper.vm.lastFocusedChoice).toBeNull();
+    // Native label activation has detail=0 in WebKit, but remains trusted.
+    wrapper.vm.focusOnFirstQuestionFromOutside(click(choice, { detail: 0 }));
+    expect(document.activeElement).toBe(choice);
+    expect(editor.value).toBe("123");
+    expect(choice.checked).toBe(false);
+    expect(wrapper.emitted("on-submit-responses")).toBeUndefined();
   });
 
   it.each([
@@ -147,10 +165,31 @@ describe("QuestionsForm click-away focus", () => {
     }
   );
 
-  it("leaves a text selection intact", () => {
-    jest.spyOn(window, "getSelection").mockReturnValue({ isCollapsed: false });
-    expect(wrapper.vm.restoreChoiceFocus(click(host))).toBe(false);
-  });
+  it.each([false, true])(
+    "preserves selected text when focus clears selection: %s",
+    (clearsSelection) => {
+      const text = document.createElement("p");
+      text.textContent = "Synthetic selected text";
+      host.appendChild(text);
+      const selection = window.getSelection();
+      selection.selectAllChildren(text);
+      if (clearsSelection) {
+        const nativeFocus = choice.focus.bind(choice);
+        jest.spyOn(choice, "focus").mockImplementation((options) => {
+          nativeFocus(options);
+          selection.removeAllRanges();
+        });
+      }
+      try {
+        expect(wrapper.vm.restoreChoiceFocus(click(text))).toBe(true);
+        expect(document.activeElement).toBe(choice);
+        expect(selection.toString()).toBe("Synthetic selected text");
+        expect(choice.checked).toBe(false);
+      } finally {
+        selection.removeAllRanges();
+      }
+    }
+  );
 
   it("does not restore focus outside focus annotation mode", () => {
     host.removeAttribute("data-annotation-focus");

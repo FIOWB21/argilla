@@ -223,11 +223,9 @@ export default {
       }
     },
     focusOnFirstQuestionFromOutside(event) {
-      // WebKit can blur a checkbox on a label click without focusing the new
-      // choice. Focus the actual clicked input before its normal change handler
-      // advances the question; keyboard-generated clicks retain their focus.
+      // Normalize native pointer focus for WebKit, including a click from an
+      // editor. Programmatic shortcut clicks keep the current keyboard focus.
       if (
-        this.lastFocusedChoice &&
         this.areActionsEnabled &&
         !this.isSaving &&
         this.record.id &&
@@ -235,7 +233,8 @@ export default {
         event.target instanceof Element &&
         event.target.matches('.input-button input[type="checkbox"]') &&
         !event.target.disabled &&
-        document.activeElement === document.body &&
+        event.isTrusted &&
+        document.activeElement !== event.target &&
         !event.defaultPrevented &&
         event.button === 0 &&
         !event.ctrlKey &&
@@ -299,8 +298,7 @@ export default {
         choice.closest('[inert], [aria-hidden="true"]') ||
         !choice.getClientRects().length ||
         window.getComputedStyle(choice).visibility === "hidden" ||
-        !this.isNonInteractiveClick(event) ||
-        window.getSelection()?.isCollapsed === false
+        !this.isNonInteractiveClick(event)
       )
         return false;
 
@@ -321,7 +319,19 @@ export default {
       const active = document.activeElement;
       if (active !== document.body && active !== choice) return false;
 
+      const selection = window.getSelection();
+      const ranges =
+        selection && !selection.isCollapsed
+          ? Array.from({ length: selection.rangeCount }, (_, index) =>
+              selection.getRangeAt(index).cloneRange()
+            )
+          : [];
       choice.focus({ preventScroll: true });
+      // WebKit clears ordinary text selection when focusing a checkbox.
+      if (ranges.length && selection.isCollapsed) {
+        selection.removeAllRanges();
+        ranges.forEach((range) => selection.addRange(range));
+      }
       this.userComesFromOutside = false;
       return true;
     },

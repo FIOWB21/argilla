@@ -19,6 +19,13 @@ declare global {
     clickAwayKeys: KeyObservation[];
     clickAwayFocus: string[];
     choiceChanges: string[];
+    choiceClicks: {
+      tag: string;
+      id: string;
+      trusted: boolean;
+      detail: number;
+      active: string;
+    }[];
   }
 }
 
@@ -543,5 +550,129 @@ test("bulk mode does not restore the focus of a click-away choice", async ({
   await page.keyboard.press("2");
   expect(await page.evaluate(() => window.choiceChanges)).toEqual([]);
   expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+for (const clickCount of [2, 3]) {
+  test(`${clickCount} rapid clicks on record text preserve selection and digit shortcuts`, async ({
+    page,
+    baseURL,
+  }, testInfo) => {
+    const { decision, responseWrites, unexpectedRequests } =
+      await openSyntheticAnnotation(page, baseURL);
+    const text = page.getByText(CLICK_AWAY_TEXT, { exact: true });
+    const position = await text.evaluate((element) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node && !node.textContent.trim()) node = walker.nextNode();
+      const range = document.createRange();
+      range.setStart(node, 1);
+      range.setEnd(node, 2);
+      const glyph = range.getBoundingClientRect();
+      const box = element.getBoundingClientRect();
+      return {
+        x: glyph.left - box.left + glyph.width / 2,
+        y: glyph.top - box.top + glyph.height / 2,
+      };
+    });
+    await text.click({ clickCount, position });
+    const selected = await page.evaluate(() =>
+      window.getSelection().toString()
+    );
+    expect(selected.trim().length).toBeGreaterThan(0);
+    await expect(decision.locator("input[name='Yes']")).toBeChecked();
+    await page.keyboard.press("2");
+    await testInfo.attach("rapid-click-focus", {
+      body: JSON.stringify(
+        await page.evaluate(() => ({
+          selected: window.getSelection().toString(),
+          active: document.activeElement.tagName,
+          keys: window.clickAwayKeys,
+        }))
+      ),
+      contentType: "application/json",
+    });
+    await expect(decision.locator("input[name='No']")).toBeChecked({
+      timeout: 1000,
+    });
+    expect(await page.evaluate(() => window.getSelection().toString())).toBe(
+      selected
+    );
+    expect(responseWrites).toEqual([]);
+    expect(unexpectedRequests).toEqual([]);
+  });
+}
+
+test("choice shortcuts work again after editing Notes and intentionally returning to Decision", async ({
+  page,
+  baseURL,
+}, testInfo) => {
+  const { decision, responseWrites, unexpectedRequests } =
+    await openSyntheticAnnotation(page, baseURL);
+  const editor = page.locator(
+    "[aria-label='Question: notes'] [contenteditable='true']"
+  );
+  await editor.click();
+  await page.keyboard.type("123");
+  await expect(editor).toHaveText("123");
+  await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  await page.evaluate(() => {
+    window.choiceClicks = [];
+    document.addEventListener(
+      "click",
+      (event) => {
+        window.choiceClicks.push({
+          tag: (event.target as Element).tagName,
+          id: (event.target as Element).id,
+          trusted: event.isTrusted,
+          detail: event.detail,
+          active: document.activeElement.tagName,
+        });
+      },
+      true
+    );
+  });
+  await decision.getByText("No", { exact: true }).click();
+  await page.getByText(CLICK_AWAY_TEXT, { exact: true }).click();
+  await page.keyboard.press("3");
+  await testInfo.attach("editor-return-focus", {
+    body: JSON.stringify(
+      await page.evaluate(() => ({
+        keys: window.clickAwayKeys,
+        focus: window.clickAwayFocus,
+        clicks: window.choiceClicks,
+      }))
+    ),
+    contentType: "application/json",
+  });
+  await expect(decision.locator("input[name='Not sure']")).toBeChecked();
+  await expect(editor).toHaveText("123");
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("50 click-away cycles preserve digits on the same record", async ({
+  page,
+  baseURL,
+}) => {
+  test.setTimeout(120000);
+  const { decision, responseWrites, unexpectedRequests } =
+    await openSyntheticAnnotation(page, baseURL);
+  const initialURL = page.url();
+  const answers = ["Yes", "No", "Not sure"];
+  await page.keyboard.press("2");
+  for (let cycle = 0; cycle < 50; cycle++) {
+    const area =
+      cycle % 2
+        ? page.getByText(CLICK_AWAY_TEXT, { exact: true })
+        : page.locator(".wrapper__records__header");
+    await area.click({ clickCount: (cycle % 3) + 1 });
+    await page.keyboard.press(String((cycle % 3) + 1));
+    await expect(
+      decision.locator(`input[name='${answers[cycle % 3]}']`)
+    ).toBeChecked();
+    expect(responseWrites).toEqual([]);
+  }
+  await expect(page).toHaveURL(initialURL);
   expect(unexpectedRequests).toEqual([]);
 });

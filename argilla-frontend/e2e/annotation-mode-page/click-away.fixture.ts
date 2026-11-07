@@ -7,6 +7,7 @@ export type ClickAwayOptions = {
   choiceType?: "label_selection" | "multi_label_selection" | "rating";
   searchable?: boolean;
   extraChoice?: boolean;
+  includeNotes?: boolean;
 };
 
 export const mockClickAwayAnnotation = async (
@@ -15,6 +16,7 @@ export const mockClickAwayAnnotation = async (
     choiceType = "label_selection",
     searchable = false,
     extraChoice = false,
+    includeNotes = true,
   }: ClickAwayOptions = {}
 ) => {
   const unexpectedRequests: string[] = [];
@@ -48,8 +50,9 @@ export const mockClickAwayAnnotation = async (
     updated_at: timestamp,
   };
 
-  // No API request may fall through to a real backend, including writes.
-  await page.route("**/api/**", async (route) => {
+  // Keep the fallback on the context so pending requests are still blocked
+  // while page-level routes are removed during page.close().
+  await page.context().route("**/api/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const description = `${request.method()} ${path}`;
@@ -88,13 +91,17 @@ export const mockClickAwayAnnotation = async (
     [`/api/v1/datasets/${dataset.id}/vectors-settings`]: { items: [] },
     [`/api/v1/datasets/${dataset.id}/questions`]: {
       items: [
-        {
-          id: "00000000-0000-4000-8000-000000000003",
-          name: "notes",
-          title: "Notes",
-          required: true,
-          settings: { type: "text", use_markdown: false },
-        },
+        ...(includeNotes
+          ? [
+              {
+                id: "00000000-0000-4000-8000-000000000003",
+                name: "notes",
+                title: "Notes",
+                required: true,
+                settings: { type: "text", use_markdown: false },
+              },
+            ]
+          : []),
         ...(extraChoice
           ? [
               {
