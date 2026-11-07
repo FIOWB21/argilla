@@ -2,8 +2,8 @@
 
 **Проект:** Argilla v2.8.0 — shortcuts `1/2/3` после клика мышью вне вариантов ответа **на той же записи**.
 **Дата актуализации задания:** 2026-11-07.
-**Статус:** Шаг 2 DONE — после безопасного фонового клика восстанавливается фокус последнего варианта текущего вопроса без прокрутки. Исходные 6 FAIL стали PASS; итоговые Chromium E2E 11 PASS, Jest 45 PASS. Корпоративная установка не менялась.
-**Текущий этап:** Шаг 3 — расширенная автоматизированная регрессия.
+**Статус:** Шаг 3 DONE — расширенная регрессия: Chromium/WebKit 41 PASS / 1 SKIP, полный Jest 508 PASS / 2 прежних SKIP, линтер PASS. Найденная WebKit-регрессия шага 2 исправлена и проверена. Firefox 132 BLOCKED из-за исходного CSS.highlights; корпоративная установка не менялась.
+**Текущий этап:** Шаг 4 — ручная проверка и приёмка; НЕ НАЧАТ.
 
 ## Уточнённый scope (НЕ ПЕРЕПУТАТЬ)
 
@@ -26,21 +26,43 @@
 | Коммит комплекта документов | `4f5a9bd47af05e9fb02ec1e5619e3376e5a74e75` — проверен на GitHub; последующие записи журнала см. в `git log -1` |
 | VS Code Sync настроен | Upstream tracking настроен, push документов и проверка удалённого SHA — PASS; кнопка Sync в UI — NOT RUN |
 | Регрессионный тест до патча | `ea79513d` — 6 ожидаемых FAIL после click-away, 1 PASS восстановления после клика по ответу |
-| Тесты | До патча повторно: Chromium 6 FAIL / 1 PASS. После: Chromium 11 PASS, Jest 45 PASS; ESLint изменённых файлов PASS, полный lint с endOfLine: auto PASS |
-| Коммит исправления | `6fd9d2fa611c5caf3a616233515a4a8097861e39` — локальный, Sync ожидается |
-| Последний завершённый этап | Шаг 2 — минимальное frontend-исправление; пользовательская проверка кнопки VS Code Sync — NOT RUN |
+| Тесты | До патча: Chromium 6 FAIL / 1 PASS. Итог шага 3: Chromium 21 PASS; WebKit 20 PASS / 1 SKIP; Jest 508 PASS / 2 прежних SKIP, 54 suites; ESLint PASS |
+| Коммиты исправления | Шаг 2: `6fd9d2fa611c5caf3a616233515a4a8097861e39`; шаг 3 (WebKit и тесты): `f58ca0c74a48292387e57e5129c44e1784f8b04c` — локальный, Sync ожидается |
+| Последний завершённый этап | Шаг 3 — автоматизированная регрессия; Firefox BLOCKED, пользовательская приёмка NOT RUN |
 
 ## Чеклист
 
 - [x] Шаг 0 — GitHub, tracking, push и baseline готовы; инструкция Commit → Sync дана, ручной клик по кнопке — NOT RUN
 - [x] Шаг 1 — воспроизведение click-away на той же записи
 - [x] Шаг 2 — минимальное frontend-исправление
-- [ ] Шаг 3 — авто-регрессионные тесты
+- [x] Шаг 3 — авто-регрессионные тесты в Chromium/WebKit; Firefox-блокер задокументирован
 - [ ] Шаг 4 — ручные проверки кликов и регрессий
 - [ ] Шаг 5 — коммиты, GitHub, PR/передача
 - [ ] Шаг 6 — деплой только с разрешения (опционально)
 
 ## История (новые записи добавлять сверху)
+
+### 2026-11-07 — Шаг 3: автоматизированная регрессия и исправление WebKit-фокуса
+
+**Статус:** DONE для автоматизированной регрессии в Chromium/WebKit. Выполнен только шаг 3. Шаг 4, ручные 30–50 кликов, соседние записи и корпоративный браузер — NOT RUN.
+**План и результат:** расширить исходные click-away сценарии реальными поиском/меню, клавиатурной навигацией, multi-label/rating, текущим вопросом и mount/unmount; проверить guards диалога и одиночную обработку; запустить существующие scripts проекта. Основные шесть тестов сохраняют доказательство 6 FAIL до → PASS после из шагов 1–2.
+**Обнаруженная регрессия:** WebKit 18.2 после восстановления фокуса на фоне мог терять keyboard handler при повторном клике по label другого ответа. Контроль `clicking an answer restores the existing keyboard handler`: на шаге 2 FAIL, на чистом `v2.8.0` в отдельной копии **1 PASS**, после коррекции **PASS** в итоговом наборе. Новый Jest `actually clicked choice` перед коррекцией дал **1 ожидаемый FAIL**: `focus` не вызван. Добавлена минимальная ветка в существующем обработчике click формы: если раньше фокусировался вариант и активен BODY, фокусировать именно реально кликнутый checkbox до штатного change. Есть guards режима focus annotation, доступности действий, saving, record id, disabled, primary click, defaultPrevented и модификаторов. Фокус другого control не захватывается; никаких синтетических click/change/submit не добавлено. Новый глобальный listener не создаётся.
+**Изменённые файлы:** [QuestionsForm.vue](../argilla-frontend/components/features/annotation/container/questions/QuestionsForm.vue) — 22 строки коррекции; [QuestionsForm.spec.js](../argilla-frontend/components/features/annotation/container/questions/QuestionsForm.spec.js) — 13 дополнительных проверок, включая настоящий BaseModal, ARIA overlays, WebKit BODY/guards и 3 mount/destroy с одиночными Enter/auto-submit и удалением того же listener; [E2E](../argilla-frontend/e2e/annotation-mode-page/click-away-annotation-mode.spec.ts) — 21 сценарий; [fixture](../argilla-frontend/e2e/annotation-mode-page/click-away.fixture.ts) — типы вопросов, 15 labels и несколько вопросов с вариантами. Обновлены этот журнал и [TEST_PLAN](./TEST_PLAN.md). Существующий пользовательский diff [STEPS.md](./STEPS.md) с отметками шагов 0–2 не редактировался и не включался в коммиты.
+**Проверено (команды из `argilla-frontend`; Node v20.18.1 / npm 10.8.2, временный PATH):**
+
+- `npm run e2e:silent -- click-away-annotation-mode.spec.ts --project=chromium --project=webkit --workers=1 --retries=0 --reporter=line --trace=on --output "$env:TEMP/argilla-step3-final-fixed-e2e"` → **PASS: 41 / SKIP: 1**, без retries, 6.1 минуты. Chromium 21 PASS, WebKit 20 PASS; WebKit numpad SKIP из-за Chromium CDP. Проверены реальные click-away `1/2/3`, текущий вопрос, повторные нажатия, подсказки, modifiers, поиск записей/labels, contenteditable, меню записи, Tab/Shift+Tab/Space, ArrowUp и Escape/ArrowDown, уход со страницы и 3 возврата через SPA history, bulk mode. Счётчики реальных change подтверждают одиночный выбор; response writes отсутствуют. Сам фоновый клик не меняет ответ и viewport scroll.
+- `npm test -- --runInBand` → **PASS: 508 тестов / 54 suites / 11 snapshots; 2 прежних SKIP** (BaseCard и SearchLabel). Повторён после WebKit-коррекции; первый полный прогон был 501 PASS. JSDOM geometry в guard-тестах подставлена; реальный фокус подтверждает Playwright.
+- `npm test -- --runInBand --runTestsByPath components/features/annotation/container/questions/QuestionsForm.spec.js --testNamePattern 'actually clicked choice'` → **ожидаемый FAIL до коррекции**, 1 тест, 34 отфильтрованы. После коррекции он включён в 508 PASS выше.
+- `npx eslint --no-ignore components/features/annotation/container/questions/QuestionsForm.vue components/features/annotation/container/questions/QuestionsForm.spec.js e2e/annotation-mode-page/click-away-annotation-mode.spec.ts e2e/annotation-mode-page/click-away.fixture.ts` → **PASS** на финальных файлах.
+- `npm run lint -- --rule 'prettier/prettier: [error, {endOfLine: auto}]' --format json --output-file "$env:TEMP/argilla-step3-final-lint.json"` → **PASS: 0 ошибок / 0 предупреждений**, после коррекции. Обычный lint без override в этом шаге NOT RUN: исходные CRLF описаны ранее, конфигурация не менялась.
+- Из отдельной временной копии `git archive v2.8.0` (не Git checkout, исходные Vue неизменны, порт 3001): `npm run e2e:silent -- click-away-annotation-mode.spec.ts --project=webkit --grep 'clicking an answer restores' --workers=1 --retries=0 --reporter=line --trace=on --output "$env:TEMP/argilla-step3-webkit-baseline-ready"` → **1 PASS**. Первые попытки подготовки копии упирались в Windows long paths / междисковый путь CSS и ранний старт теста до сборки; итоговый результат получен после успешной сборки на том же диске.
+- Из корня `git diff --exit-code -- argilla-frontend/package.json argilla-frontend/package-lock.json` → **PASS**. Staged diff, `git diff --cached --check`, точный набор четырёх файлов и очевидные шаблоны секретов перед кодовым коммитом → **PASS**. Тестовые traces только с синтетическими данными лежат вне frontend и не добавлялись в Git.
+
+**Firefox / промежуточные E2E:** попытка общего прогона `npm run e2e:silent -- click-away-annotation-mode.spec.ts --workers=1 --retries=0 --reporter=line --trace=on --output "$env:TEMP/argilla-step3-final-e2e"` → Firefox 132 **BLOCKED**: повторяющаяся ошибка страницы 500 `CSS.highlights is undefined` до click-away; прогон остановлен после четырёх одинаковых FAIL. [useSearchTextHighlight.ts](../argilla-frontend/components/features/annotation/container/fields/useSearchTextHighlight.ts) идентичен `v2.8.0` (сверено `git diff --exit-code v2.8.0 -- argilla-frontend/components/features/annotation/container/fields/useSearchTextHighlight.ts` → PASS). Поддержка этого API не менялась. Промежуточные ошибки новых тестов исправлены: строгий selector меню, штатное сохранение стрелок в редакторе до Escape, реальные Tab-preconditions для WebKit multi-label и таймаут 60 секунд для трёх SPA-циклов. Неудачный контроль WebKit не скрыт skip-ом: регрессия исправлена и контроль зелёный.
+**Ручной UI / границы:** пользовательская приёмка NOT RUN. В focus UI нет доступной модалки/native textarea/select/combobox; диалог проверен настоящим BaseModal в Vue Test Utils, guards остальных элементов — Jest. Browser-проверка модалки и этих controls не объявляется пройденной. В WebKit для дополнительных multi-label сценариев checkbox при необходимости достигается настоящим Tab; основной click-away и контроль повторного клика по ответу идут без этой подготовки.
+**Git:** `fix/annotation-shortcuts-click-away`; код и тесты — **`f58ca0c74a48292387e57e5129c44e1784f8b04c`**. Baseline `78cb5183` сохранён. Журнал и матрица фиксируются отдельным docs-коммитом, его SHA — `git log -1`. Push в шаге 3 не выполнялся; Sync ожидается. VS Code: `Ctrl+Shift+G` → проверить ветку/коммиты → **Sync Changes**; повторный Commit уже сохранённых изменений не нужен. Пользовательский diff STEPS остаётся незакоммиченным.
+**Риски/неизвестное:** корпоративная сборка UNKNOWN; Firefox 132 BLOCKED. Удаление [временной baseline-копии](../../a3baseline-step3/) заблокировано автоматической политикой (`blocked by policy`, подробная причина не предоставлена); каталог оставлен вне Git, его сервер остановлен. Никакого production deploy или публичного PR не было.
+**Следующий шаг:** шаг 4 — ручная проверка и приёмка по TEST_PLAN, включая 30–50 кликов на разрешённых синтетических данных. Автоматически не начинать.
 
 ### 2026-11-07 — Шаг 2: безопасное восстановление фокуса после click-away
 

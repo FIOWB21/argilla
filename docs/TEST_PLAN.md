@@ -26,20 +26,42 @@
 | CA-02 | На той же записи: вариант → клик по обычному тексту → `2` | Второй ответ выбирается | FAIL до патча → PASS после, Chromium 2026-11-07 |
 | CA-03 | Клик по фону несколько раз → `3` | Третий ответ выбирается | PARTIAL: повторные клики → `1/2` PASS; повторные клики → `3` NOT RUN |
 | CA-04 | 30–50 чередований «клик в фон → цифра» | Ни одной потери shortcuts | NOT RUN |
-| CA-05 | Клик на самом ответе, затем `Enter` / Tab / стрелки | Существующее поведение сохранено | NOT RUN |
-| CA-06 | Ввод цифр в `input`, `textarea`, `contenteditable`, поиск | Цифры вводятся, **не** выбирают ответы | PARTIAL: contenteditable E2E PASS; guards input/textarea/select/поиска Jest PASS; остальные browser E2E NOT RUN |
-| CA-07 | Открытая модалка, выпадающее меню, combobox | Клавиши обслуживают активный UI, не форму разметки | PARTIAL: guards восстановления Jest PASS; реальные browser E2E NOT RUN |
-| CA-08 | Ctrl/Alt/Meta + цифра, браузерные сочетания | Не перехватываются | Ctrl/Alt/Meta/Shift + `2`: Chromium E2E PASS; остальные сочетания NOT RUN |
-| CA-09 | Клик по другой интерактивной кнопке/ссылке | Фокус не захватывается насильно, побочных выборов нет | PARTIAL: guards Jest PASS; browser E2E NOT RUN |
-| CA-10 | Другая страница Argilla / скрытая форма | Нет активного обработчика разметки | PARTIAL: guards отсутствия режима, hidden/inert/aria-hidden Jest PASS; browser lifecycle NOT RUN |
-| CA-11 | Несколько вопросов в одной записи | Правильный текущий вопрос и нумерация shortcuts | PASS: второй вопрос Decision, первый Notes остаётся пустым; Chromium E2E |
-| CA-12 | Multi-label/rating (если поддерживается в пути изменения) | Поведение и доступность не ухудшились | Существующие component Jest PASS; browser E2E NOT RUN |
-| CA-13 | Повторные mount/unmount страницы разметки | Нет двойных listeners, двойных выборов | NOT RUN |
-| CA-14 | Нажать цифру ровно один раз после клика | Не происходит двойного submit/навигации | PASS: один выбор, без response writes/смены URL; Chromium E2E |
+| CA-05 | Клик на самом ответе, затем `Enter` / Tab / стрелки | Существующее поведение сохранено | PASS Chromium: Tab/Shift+Tab, Space, ArrowUp, Escape/ArrowDown; Enter не отправляет неполную запись; Jest проверяет Enter на полной форме |
+| CA-06 | Ввод цифр в `input`, `textarea`, `contenteditable`, поиск | Цифры вводятся, **не** выбирают ответы | PASS Chromium: contenteditable, поиск записей и поиск labels; textarea/select guards Jest PASS; отдельного native textarea/select в focus UI нет |
+| CA-07 | Открытая модалка, выпадающее меню, combobox | Клавиши обслуживают активный UI, не форму разметки | PARTIAL: реальное меню Chromium PASS, настоящий BaseModal и ARIA overlays Jest PASS; модалка/combobox browser E2E NOT RUN — в данном focus UI нет доступного сценария открытия |
+| CA-08 | Ctrl/Alt/Meta + цифра, браузерные сочетания | Не перехватываются | PASS Chromium: Ctrl/Alt/Meta/Shift + `2` в single-label/multi-label/rating; глобальные modifiers/IME Jest PASS; прочие сочетания NOT RUN |
+| CA-09 | Клик по другой интерактивной кнопке/ссылке | Фокус не захватывается насильно, побочных выборов нет | PASS Chromium: меню и поиск не возвращают фокус вариантам; guards ссылок и остальных controls Jest PASS; browser-клик по ссылке отдельно NOT RUN |
+| CA-10 | Другая страница Argilla / скрытая форма | Нет активного обработчика разметки | PASS Chromium: уход на список datasets и bulk mode; hidden/inert/aria-hidden и отсутствие режима Jest PASS |
+| CA-11 | Несколько вопросов в одной записи | Правильный текущий вопрос и нумерация shortcuts | PASS Chromium: Notes + Tags multi-label + Decision; переключение текущего вопроса мышью и click-away меняют только его ответ |
+| CA-12 | Multi-label/rating (если поддерживается в пути изменения) | Поведение и доступность не ухудшились | PASS Chromium: выбор/повторный toggle цифрой после click-away, modifiers, ровно 3 change на 3 цифры; компонентные Jest PASS |
+| CA-13 | Повторные mount/unmount страницы разметки | Нет двойных listeners, двойных выборов | PASS: Chromium — 3 SPA-цикла назад/вперёд без reload и ровно один change; Jest — 3 mount/destroy, удаление того же document listener и отсутствие повторных submit |
+| CA-14 | Нажать цифру ровно один раз после клика | Не происходит двойного submit/навигации | PASS Chromium: подсчёт реальных change для single-label/multi-label/rating; response writes отсутствуют; Enter/auto-submit events ровно по одному в Jest |
 | CA-15 | Стандартный переход к соседней записи, назад/вперёд | Нет новых регрессий после фикса | NOT RUN |
 | CA-16 | Клик по фону не вызывает scroll/focus jump и сам ничего не выбирает | Нет неожиданных side effects | PARTIAL: ответ не меняется, viewport scroll неизменён; focus preventScroll Jest PASS; nested scroll NOT RUN |
 
 ## Автоматизированные тесты
+
+### Расширенная регрессия — 2026-11-07, шаг 3
+
+Коммит кода и тестов: `f58ca0c74a48292387e57e5129c44e1784f8b04c`. Финальный прогон → **41 PASS / 1 SKIP**, без retries: Chromium **21 PASS**, WebKit **20 PASS / 1 SKIP** (numpad использует только Chromium CDP).
+
+```powershell
+npm run e2e:silent -- click-away-annotation-mode.spec.ts --project=chromium --project=webkit --workers=1 --retries=0 --reporter=line --trace=on --output "$env:TEMP/argilla-step3-final-fixed-e2e"
+```
+
+Все перечисленные в таблице Chromium browser PASS также подтверждены в WebKit тем же набором, кроме numpad. Финальные прогоны не обнаружили критичных регрессий. Firefox и ручные проверки имеют ограничения ниже.
+
+В [click-away-annotation-mode.spec.ts](../argilla-frontend/e2e/annotation-mode-page/click-away-annotation-mode.spec.ts) теперь 21 сценарий. Синтетический [fixture](../argilla-frontend/e2e/annotation-mode-page/click-away.fixture.ts) поддерживает single-label, multi-label, rating, поиск среди 15 labels и несколько вопросов с вариантами. Проверяются реальные клавиши/клики без искусственного назначения фокуса: поиск записей/labels, открытое меню записи, Tab/Shift+Tab/Space, стрелки и Escape из редактора, modifiers, повторный toggle, подсказки цифр, текущий вопрос, bulk mode, 3 SPA-цикла назад/вперёд. Счётчик реальных `change` исключает двойной выбор; API по-прежнему полностью замокирован, записи ответов не допускаются.
+
+В [QuestionsForm.spec.js](../argilla-frontend/components/features/annotation/container/questions/QuestionsForm.spec.js) добавлены 13 тестов: настоящий BaseModal, ARIA dialog/menu/listbox (видимые и скрытые), disabled choice, фокус реально кликнутого checkbox при BODY, guards modifiers/другого активного control и 3 mount/destroy формы с проверкой регистрации/удаления того же document listener, modifiers/IME и одиночных Enter/auto-submit событий. Геометрия в JSDOM подставлена; браузерный фокус этой проверкой не имитируется.
+
+Итоговый `npm test -- --runInBand` → **PASS: 508 тестов, 54 suites, 11 snapshots; 2 существующих skip** (BaseCard и SearchLabel). До WebKit-коррекции было 501 PASS; три целевых suites на том состоянии → 51 PASS. Targeted ESLint четырёх финальных Vue/тестовых файлов с `--no-ignore` → PASS. Полный `npm run lint -- --rule 'prettier/prettier: [error, {endOfLine: auto}]' --format json --output-file "$env:TEMP/argilla-step3-final-lint.json"` → **0 ошибок / 0 предупреждений**. Обычный lint без override в шаге 3 NOT RUN: исходные Windows CRLF описаны ранее, конфигурация не менялась.
+
+Firefox 132 / Playwright 1466: **BLOCKED** до click-away. Страница уходит в 500 `CSS.highlights is undefined` при начальной проверке работы клавиши. [useSearchTextHighlight.ts](../argilla-frontend/components/features/annotation/container/fields/useSearchTextHighlight.ts) обращается к API без проверки и идентичен `v2.8.0` (`git diff --exit-code v2.8.0 -- argilla-frontend/components/features/annotation/container/fields/useSearchTextHighlight.ts` → PASS). Общий прогон трёх браузеров остановлен после повторения этой ошибки; Firefox не объявляется зелёным и не скрывается через новый skip/polyfill.
+
+WebKit выявил регрессию шага 2: после click-away повторный клик по label другого ответа оставлял фокус на BODY. Тот же контроль `clicking an answer restores the existing keyboard handler` на чистом `v2.8.0` в отдельной временной копии → **1 PASS**, на шаге 2 → **FAIL**. Добавленный Jest `actually clicked choice` → **1 ожидаемый FAIL** до коррекции (focus не вызван). В [QuestionsForm.vue](../argilla-frontend/components/features/annotation/container/questions/QuestionsForm.vue) добавлен только возврат фокуса реально кликнутому checkbox, если ранее фокусировался вариант, активен BODY и выполняются guards режима/состояния/модификаторов. Это происходит до штатного change и не создаёт click/change/submit. Клики, вызванные клавиатурой при фокусе на control, не перемещают фокус. Для multi-label в WebKit тест предварительно достигает checkbox настоящим Tab: это проверяет потерю уже работающего фокуса, не маскируя отсутствие native focus на label. Навигационный тест имеет лимит 60 секунд для 3 SPA-циклов.
+
+Доказательство красного baseline основного бага сохранено в тестовом коммите `ea79513d` и результатах шагов 1–2: те же шесть основных сценариев дали 6 FAIL до патча, затем PASS. В шаге 3 рабочее дерево не переключалось на baseline: отдельная копия создана через `git archive v2.8.0`, исходные Vue-компоненты в ней не менялись, порт тестового frontend — 3001. Пользовательская ручная приёмка, 30–50 кликов, соседние записи и корпоративный браузер остаются шагом 4, NOT RUN.
 
 ### После минимального патча — 2026-11-07, шаг 2
 
