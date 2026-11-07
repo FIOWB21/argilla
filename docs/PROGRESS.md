@@ -2,8 +2,8 @@
 
 **Проект:** Argilla v2.8.0 — shortcuts `1/2/3` после клика мышью вне вариантов ответа **на той же записи**.
 **Дата актуализации задания:** 2026-11-07.
-**Статус:** Шаг 1 DONE — click-away воспроизведён на исходном frontend v2.8.0 в Chromium, причина подтверждена браузерными событиями. Добавлены падающие регрессионные тесты и положительная контрольная проверка. Исправление поведения ещё не внесено; корпоративная установка не менялась.
-**Текущий этап:** Шаг 2 — минимальное frontend-исправление.
+**Статус:** Шаг 2 DONE — после безопасного фонового клика восстанавливается фокус последнего варианта текущего вопроса без прокрутки. Исходные 6 FAIL стали PASS; итоговые Chromium E2E 11 PASS, Jest 45 PASS. Корпоративная установка не менялась.
+**Текущий этап:** Шаг 3 — расширенная автоматизированная регрессия.
 
 ## Уточнённый scope (НЕ ПЕРЕПУТАТЬ)
 
@@ -26,20 +26,42 @@
 | Коммит комплекта документов | `4f5a9bd47af05e9fb02ec1e5619e3376e5a74e75` — проверен на GitHub; последующие записи журнала см. в `git log -1` |
 | VS Code Sync настроен | Upstream tracking настроен, push документов и проверка удалённого SHA — PASS; кнопка Sync в UI — NOT RUN |
 | Регрессионный тест до патча | `ea79513d` — 6 ожидаемых FAIL после click-away, 1 PASS восстановления после клика по ответу |
-| Тесты | Jest: 17 PASS; Chromium E2E: 6 FAIL / 1 PASS на исходном frontend; новый код тестов проходит ESLint |
-| Последний завершённый этап | Шаг 1 — воспроизведение и диагностика; пользовательская проверка кнопки VS Code Sync — NOT RUN |
+| Тесты | До патча повторно: Chromium 6 FAIL / 1 PASS. После: Chromium 11 PASS, Jest 45 PASS; ESLint изменённых файлов PASS, полный lint с endOfLine: auto PASS |
+| Коммит исправления | `6fd9d2fa611c5caf3a616233515a4a8097861e39` — локальный, Sync ожидается |
+| Последний завершённый этап | Шаг 2 — минимальное frontend-исправление; пользовательская проверка кнопки VS Code Sync — NOT RUN |
 
 ## Чеклист
 
 - [x] Шаг 0 — GitHub, tracking, push и baseline готовы; инструкция Commit → Sync дана, ручной клик по кнопке — NOT RUN
 - [x] Шаг 1 — воспроизведение click-away на той же записи
-- [ ] Шаг 2 — минимальное frontend-исправление
+- [x] Шаг 2 — минимальное frontend-исправление
 - [ ] Шаг 3 — авто-регрессионные тесты
 - [ ] Шаг 4 — ручные проверки кликов и регрессий
 - [ ] Шаг 5 — коммиты, GitHub, PR/передача
 - [ ] Шаг 6 — деплой только с разрешения (опционально)
 
 ## История (новые записи добавлять сверху)
+
+### 2026-11-07 — Шаг 2: безопасное восстановление фокуса после click-away
+
+**Статус:** DONE. Выполнен только шаг 2; полная матрица регрессии и ручная приёмка остаются шагами 3–4.
+**Решение:** использован существующий `v-click-outside` и обработчик клика формы. Новый глобальный `keydown` не добавлялся. Форма запоминает последний реально сфокусированный checkbox single-label/multi-label/rating; безопасный клик возвращает ему фокус через `focus({ preventScroll: true })`. Поэтому последующая цифра проходит по прежнему локальному обработчику и соответствию shortcuts. Само восстановление фокуса не создаёт `click/change/submit`.
+**Границы и защиты:** маркер режима focus annotation на контейнере; проверяются наличие/видимость варианта, доступность действий, состояние сохранения, интерактивные предки target, модификаторы мыши, сохранённое выделение текста, другой активный control, открытые class-based/ARIA overlays, `inert` и `aria-hidden`. Фокус внутри редактора очищает запомненный вариант. Фоновый клик не выбирает произвольный первый вопрос. Guards модификаторов/IME дополнены в существующих label/rating/document обработчиках; в rating `preventDefault` применяется только к обрабатываемой цифре/Space. Бизнес-логика auto-submit и сохранения не менялась.
+**Изменённые файлы:** [FocusAnnotation](../argilla-frontend/components/features/annotation/container/mode/FocusAnnotation.vue) — граница режима; [QuestionsForm](../argilla-frontend/components/features/annotation/container/questions/QuestionsForm.vue) — запоминание/восстановление фокуса и guards; [LabelSelection](../argilla-frontend/components/features/annotation/container/questions/form/shared-components/label-selection/LabelSelection.component.vue) и [RatingShortcuts](../argilla-frontend/components/features/annotation/container/questions/form/rating/RatingShortcuts.vue) — модификаторы; [Jest](../argilla-frontend/components/features/annotation/container/questions/QuestionsForm.spec.js) — 28 проверок восстановления/отказа; [E2E](../argilla-frontend/e2e/annotation-mode-page/click-away-annotation-mode.spec.ts) — дополнительные проверки фонового клика, редактора, модификаторов и numpad. Обновлён [TEST_PLAN](./TEST_PLAN.md).
+**Проверено (команды из `argilla-frontend`, Node v20.18.1 / npm 10.8.2 из ранее подготовленной временной папки):**
+
+- До изменения исходников: `npm run e2e:silent -- click-away-annotation-mode.spec.ts --project=chromium --workers=1 --retries=0 --reporter=line` → ожидаемый FAIL: те же 6 отказов после click-away, контрольный тест PASS.
+- Итоговый прогон: `npm run e2e:silent -- click-away-annotation-mode.spec.ts --project=chromium --workers=1 --retries=0 --reporter=line --trace=on --output "$env:TEMP/argilla-focus-step2-results"` → PASS: **11/11**, без retries. Первые шесть сценариев теперь зелёные на той же синтетической записи. Проверено отсутствие изменений ответа от самого фонового клика, response writes, смены URL/текста; повторные клики по тексту/фону/заголовку вопроса, отсутствие прокрутки viewport, ввод `123` в реальный contenteditable, Ctrl/Alt/Meta/Shift и цифровой блок.
+- `npm test -- --runInBand --runTestsByPath components/features/annotation/container/questions/QuestionsForm.spec.js components/features/annotation/container/questions/form/shared-components/label-selection/labelSelection.component.spec.js components/features/annotation/container/questions/form/rating/ratingMonoSelection.component.spec.js` → PASS: **45 тестов / 3 suites** (28 новых + 17 существующих). JSDOM проверяет guards с подставленной геометрией; реальная потеря/возврат фокуса подтверждена E2E.
+- `npx eslint --no-ignore components/features/annotation/container/mode/FocusAnnotation.vue components/features/annotation/container/questions/QuestionsForm.vue components/features/annotation/container/questions/QuestionsForm.spec.js components/features/annotation/container/questions/form/shared-components/label-selection/LabelSelection.component.vue components/features/annotation/container/questions/form/rating/RatingShortcuts.vue e2e/annotation-mode-page/click-away-annotation-mode.spec.ts` → PASS на финальных файлах.
+- `npm run lint -- --rule 'prettier/prettier: [error, {endOfLine: auto}]' --format json --output-file "$env:TEMP/argilla-focus-step2-lint.json"` → PASS: **0 ошибок / 0 предупреждений**. Запущен до последних добавлений guards, после них повторён targeted ESLint выше. Обычный lint без endOfLine override в этой сессии NOT RUN: исходная проблема CRLF зафиксирована на шаге 1; конфигурация проекта не менялась.
+- Из корня: `git diff --exit-code -- argilla-frontend/package.json argilla-frontend/package-lock.json` → PASS; зависимости не менялись. `git diff --cached`, `git diff --cached --check` и проверка diff на очевидные секреты → PASS перед коммитом.
+
+**Промежуточные сбои тестового стенда:** неверные новые селекторы заголовка/редактора исправлены по фактическим компонентам; ошибка attachTo в unit-стенде исправлена отдельной точкой монтирования. Nuxt watcher завершался с `EPERM` при чтении ZIP trace в папке frontend; финальный прогон пишет результаты вне проекта. Playwright 1.49 `keyboard.press("Numpad2")` отправляет `ArrowDown` (NumLock off); тест цифрового режима передаёт настоящий browser key event `key=2, code=Numpad2` через Chromium CDP. Это ограничение тестового API, перехват стрелок ради numpad не добавлялся.
+**Ручной UI:** NOT RUN. Проверены реальные автоматизированные клики Chromium; отдельная пользовательская приёмка, 30–50 повторений, браузер компании, Firefox/WebKit, весь набор Enter/Tab/стрелок, lifecycle и browser E2E для меню/модалок/multi-label/rating остаются NOT RUN. Меню/модалки/поля ввода и скрытые состояния покрыты unit-проверками guards восстановления фокуса.
+**Git:** ветка `fix/annotation-shortcuts-click-away`; commit патча **`6fd9d2fa611c5caf3a616233515a4a8097861e39`**. Baseline `78cb5183` сохранён. Журнал фиксируется отдельным docs-коммитом, его SHA — `git log -1`. Push в этой сессии не выполнялся; Sync ожидается. В VS Code: `Ctrl+Shift+G` → проверить ветку и diff/коммиты → **Sync Changes**. Код уже закоммичен; повторный Commit не нужен.
+**Риски/неизвестное:** корпоративная сборка по-прежнему UNKNOWN. Селекторы overlays сверены с текущими BaseModal/BaseDropdown; полная браузерная проверка этих состояний остаётся шагом 3. Намеренное выделение текста сохраняется и не вызывает восстановление фокуса. Механизм включён только в focus annotation; bulk-режим не расширялся.
+**Следующий шаг:** шаг 3 — расширенная автоматизированная регрессия по TEST_PLAN: реальные поиск/меню/диалог, навигация клавиатурой, multi-label/rating, смена/размонтирование страницы без повторных обработчиков. Не начинать шаг 4 или deploy автоматически.
 
 ### 2026-11-07 — Шаг 1: click-away воспроизведён, причина подтверждена
 
