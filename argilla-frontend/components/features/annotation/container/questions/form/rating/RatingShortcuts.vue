@@ -1,5 +1,5 @@
 <template>
-  <div @keydown.prevent="answerRatingFor">
+  <div @keydown="answerRatingFor">
     <slot></slot>
   </div>
 </template>
@@ -36,16 +36,27 @@ export default {
       this.timer = null;
     },
     answerRatingFor(event) {
+      if (
+        event.shiftKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        event.isComposing
+      )
+        return;
+
       if (this.timer) clearTimeout(this.timer);
       if (event.key == "Tab") return;
 
       if (event.code == "Space") {
+        event.preventDefault();
         return document.activeElement.click();
       }
 
-      this.keyCode += event.key;
+      if (!/^\d$/.test(event.key)) return this.reset();
 
-      if (isNaN(this.keyCode)) return this.reset();
+      event.preventDefault();
+      this.keyCode += event.key;
 
       if (this.hasJustOneCoincidence(this.keyCode)) {
         return this.selectByKeyCode(this.keyCode);

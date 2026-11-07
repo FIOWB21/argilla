@@ -1,5 +1,9 @@
 <template>
-  <VerticalResizable class="wrapper" :id="`${recordCriteria.datasetId}-r-v-rz`">
+  <VerticalResizable
+    class="wrapper"
+    data-annotation-focus
+    :id="`${recordCriteria.datasetId}-r-v-rz`"
+  >
     <template #left>
       <HorizontalResizable
         :id="`${recordCriteria.datasetId}-r-h-rz`"

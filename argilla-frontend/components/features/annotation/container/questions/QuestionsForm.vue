@@ -5,6 +5,7 @@
     @submit.stop.prevent=""
     v-click-outside="onClickOutside"
     @click="focusOnFirstQuestionFromOutside"
+    @focusin="rememberChoiceFocus"
     aria-label="Annotation Questions"
   >
     <div class="questions-form__content">
@@ -164,6 +165,7 @@ export default {
       interactionCount: 0,
       isSubmittedTouched: false,
       userComesFromOutside: false,
+      lastFocusedChoice: null,
     };
   },
   computed: {
@@ -221,7 +223,11 @@ export default {
       }
     },
     focusOnFirstQuestionFromOutside(event) {
+      if (this.restoreChoiceFocus(event)) return;
+      if (this.lastFocusedChoice && this.$el.closest("[data-annotation-focus]"))
+        return;
       if (!this.userComesFromOutside) return;
+      if (!this.isNonInteractiveClick(event)) return;
       if (event.srcElement.id || event.srcElement.getAttribute("for")) return;
 
       this.userComesFromOutside = false;
@@ -231,14 +237,87 @@ export default {
       event.preventDefault();
       this.updateQuestionAutofocus(0);
     },
-    onClickOutside() {
+    rememberChoiceFocus(event) {
+      const question = this.record.questions[this.autofocusPosition];
+      const isChoiceQuestion =
+        question?.isSingleLabelType ||
+        question?.isMultiLabelType ||
+        question?.isRatingType;
+
+      this.lastFocusedChoice =
+        isChoiceQuestion &&
+        event.target.matches('.input-button input[type="checkbox"]')
+          ? event.target
+          : null;
+    },
+    isNonInteractiveClick(event) {
+      return (
+        event.target instanceof Element &&
+        !event.defaultPrevented &&
+        event.button === 0 &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        !event.target.closest(
+          'input, textarea, select, button, a, label, summary, [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="combobox"], [role="textbox"], [role="menuitem"], [role="option"], .search-area'
+        )
+      );
+    },
+    restoreChoiceFocus(event) {
+      const choice = this.lastFocusedChoice;
+      if (
+        !this.$el.closest("[data-annotation-focus]") ||
+        !this.areActionsEnabled ||
+        this.isSaving ||
+        !this.record.id ||
+        !choice ||
+        !this.$el.contains(choice) ||
+        choice.disabled ||
+        choice.closest('[inert], [aria-hidden="true"]') ||
+        !choice.getClientRects().length ||
+        window.getComputedStyle(choice).visibility === "hidden" ||
+        !this.isNonInteractiveClick(event) ||
+        window.getSelection()?.isCollapsed === false
+      )
+        return false;
+
+      // The project uses class-based overlays as well as ARIA widgets.
+      const overlays = document.querySelectorAll(
+        '.modal-mask, .dropdown__content, .span-entity__dropdown, [role="dialog"], [role="menu"], [role="listbox"], [aria-modal="true"]'
+      );
+      if (
+        Array.from(overlays).some(
+          (overlay) =>
+            overlay.getClientRects().length &&
+            window.getComputedStyle(overlay).visibility !== "hidden"
+        )
+      )
+        return false;
+
+      // Do not take focus from an editor or another intentional control.
+      const active = document.activeElement;
+      if (active !== document.body && active !== choice) return false;
+
+      choice.focus({ preventScroll: true });
+      this.userComesFromOutside = false;
+      return true;
+    },
+    onClickOutside(event) {
+      if (this.restoreChoiceFocus(event)) return;
       this.autofocusPosition = null;
       this.userComesFromOutside = true;
     },
     handleGlobalKeys(event) {
-      const { code, ctrlKey, metaKey, shiftKey, key } = event;
+      const { code, ctrlKey, metaKey, shiftKey, altKey, key } = event;
 
-      if (shiftKey) return;
+      if (
+        shiftKey ||
+        altKey ||
+        event.isComposing ||
+        ((ctrlKey || metaKey) && code !== "KeyS")
+      )
+        return;
 
       if (code === "Tab" && this.userComesFromOutside) {
         this.focusOnFirstQuestion(event);

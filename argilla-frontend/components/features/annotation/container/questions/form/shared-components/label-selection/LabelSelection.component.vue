@@ -262,7 +262,9 @@ export default {
         $event.key === "ArrowDown" ||
         $event.shiftKey ||
         $event.ctrlKey ||
-        $event.metaKey
+        $event.metaKey ||
+        $event.altKey ||
+        $event.isComposing
       )
         return;
 

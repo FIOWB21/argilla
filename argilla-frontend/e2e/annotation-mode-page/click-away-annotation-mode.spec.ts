@@ -118,6 +118,11 @@ for (const area of ["record text", "background"] as const) {
       await safeArea.click(
         area === "background" ? { position: { x: 4, y: 4 } } : {}
       );
+      await expect(
+        decision.locator(`input[name='${priorAnswer}']`)
+      ).toBeChecked();
+      expect(responseWrites).toEqual([]);
+      await expect(page).toHaveURL(initialURL);
       await page.keyboard.press(key);
 
       try {
@@ -157,6 +162,103 @@ test("clicking an answer restores the existing keyboard handler", async ({
   await decision.getByText("No", { exact: true }).click();
   await page.keyboard.press("3");
   await expect(decision.locator("input[name='Not sure']")).toBeChecked();
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("repeated safe clicks preserve the current question without selecting or scrolling", async ({
+  page,
+  baseURL,
+}) => {
+  const { decision, unexpectedRequests, responseWrites } =
+    await openSyntheticAnnotation(page, baseURL);
+  const initialURL = page.url();
+  const areas = [
+    page.getByText(CLICK_AWAY_TEXT, { exact: true }),
+    page.locator(".wrapper__records__header"),
+    decision.locator(".title-area[aria-label='Decision']"),
+  ];
+  for (const area of areas) {
+    const scroll = await page.evaluate(() => [window.scrollX, window.scrollY]);
+    await area.click({ position: { x: 4, y: 4 } });
+    await area.click({ position: { x: 4, y: 4 } });
+    await expect(decision.locator("input[name='Yes']")).toBeChecked();
+    expect(await page.evaluate(() => [window.scrollX, window.scrollY])).toEqual(
+      scroll
+    );
+    await page.keyboard.press("2");
+    await expect(decision.locator("input[name='No']")).toBeChecked();
+    await page.keyboard.press("1");
+    await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  }
+  await expect(page).toHaveURL(initialURL);
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("clicking the text editor keeps digit input in the editor", async ({
+  page,
+  baseURL,
+}) => {
+  const { decision, unexpectedRequests, responseWrites } =
+    await openSyntheticAnnotation(page, baseURL);
+  const editor = page.locator(
+    "[aria-label='Question: notes'] [contenteditable='true']"
+  );
+  await editor.click();
+  await page.keyboard.type("123");
+  await expect(editor).toHaveText("123");
+  await expect(editor).toBeFocused();
+  await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("modified digits are ignored after clicking away", async ({
+  page,
+  baseURL,
+}) => {
+  const { decision, unexpectedRequests, responseWrites } =
+    await openSyntheticAnnotation(page, baseURL);
+  await page.getByText(CLICK_AWAY_TEXT, { exact: true }).click();
+  for (const modifier of ["Control", "Alt", "Meta", "Shift"]) {
+    await page.keyboard.press(`${modifier}+2`);
+    await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  }
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("a numeric keypad digit selects once after clicking away", async ({
+  page,
+  baseURL,
+  browserName,
+}) => {
+  test.skip(browserName !== "chromium", "Numeric keypad uses Chromium CDP");
+  const { decision, unexpectedRequests, responseWrites } =
+    await openSyntheticAnnotation(page, baseURL);
+  await page.getByText(CLICK_AWAY_TEXT, { exact: true }).click();
+
+  // Playwright 1.49 maps keyboard.press('Numpad2') to ArrowDown (NumLock off).
+  // Send the OS-level numeric-mode key through the browser protocol instead.
+  const keyboard = await page.context().newCDPSession(page);
+  await keyboard.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "2",
+    code: "Numpad2",
+    windowsVirtualKeyCode: 98,
+    isKeypad: true,
+    text: "2",
+  });
+  await keyboard.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "2",
+    code: "Numpad2",
+    windowsVirtualKeyCode: 98,
+    isKeypad: true,
+  });
+  await keyboard.detach();
+  await expect(decision.locator("input[name='No']")).toBeChecked();
   expect(responseWrites).toEqual([]);
   expect(unexpectedRequests).toEqual([]);
 });
