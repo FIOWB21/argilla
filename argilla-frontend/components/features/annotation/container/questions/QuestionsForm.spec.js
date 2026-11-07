@@ -1,4 +1,5 @@
-import { shallowMount } from "@vue/test-utils";
+import { mount, shallowMount } from "@vue/test-utils";
+import BaseModal from "~/components/base/base-modal/BaseModal.vue";
 import QuestionsForm from "./QuestionsForm.vue";
 
 describe("QuestionsForm click-away focus", () => {
@@ -63,6 +64,36 @@ describe("QuestionsForm click-away focus", () => {
     expect(choice.checked).toBe(false);
     expect(wrapper.vm.autofocusPosition).toBe(1);
     expect(wrapper.emitted("on-submit-responses")).toBeUndefined();
+  });
+
+  it("focuses an actually clicked choice when the browser leaves focus on BODY", () => {
+    const focus = jest.spyOn(choice, "focus");
+    wrapper.vm.focusOnFirstQuestionFromOutside(click(choice));
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(document.activeElement).toBe(choice);
+    expect(choice.checked).toBe(false);
+    expect(wrapper.emitted("on-submit-responses")).toBeUndefined();
+  });
+
+  it.each(["ctrlKey", "altKey", "metaKey", "shiftKey", "defaultPrevented"])(
+    "does not focus a modified choice click with %s",
+    (property) => {
+      const focus = jest.spyOn(choice, "focus");
+      wrapper.vm.focusOnFirstQuestionFromOutside(
+        click(choice, { [property]: true })
+      );
+      expect(focus).not.toHaveBeenCalled();
+    }
+  );
+
+  it("does not move focus from the current control for a generated choice click", () => {
+    const editor = document.createElement("input");
+    host.appendChild(editor);
+    editor.focus();
+    const focus = jest.spyOn(choice, "focus");
+    wrapper.vm.focusOnFirstQuestionFromOutside(click(choice));
+    expect(focus).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(editor);
   });
 
   it.each([
@@ -166,5 +197,119 @@ describe("QuestionsForm click-away focus", () => {
     editor.focus();
     expect(wrapper.vm.restoreChoiceFocus(click(host))).toBe(false);
     expect(document.activeElement).toBe(editor);
+  });
+
+  it("does not restore focus while the real BaseModal is open", () => {
+    const modalHost = document.createElement("div");
+    host.appendChild(modalHost);
+    const modal = mount(BaseModal, {
+      attachTo: modalHost,
+      propsData: { preventBodyScroll: true, modalTitle: "Synthetic dialog" },
+      slots: { default: "<p>Dialog text</p>" },
+      stubs: { BaseButton: true },
+    });
+    try {
+      const mask = modal.find(".modal-mask").element;
+      jest.spyOn(mask, "getClientRects").mockReturnValue([{}]);
+      const focus = jest.spyOn(choice, "focus");
+      wrapper.vm.onClickOutside(click(modal.find("p").element));
+      expect(focus).not.toHaveBeenCalled();
+      expect(choice.checked).toBe(false);
+      expect(wrapper.emitted("on-submit-responses")).toBeUndefined();
+    } finally {
+      modal.destroy();
+    }
+    wrapper.vm.onClickOutside(click(host));
+    expect(document.activeElement).toBe(choice);
+  });
+
+  it.each(["dialog", "menu", "listbox"])(
+    "does not restore focus with a visible ARIA %s",
+    (role) => {
+      const overlay = document.createElement("div");
+      overlay.setAttribute("role", role);
+      host.appendChild(overlay);
+      jest.spyOn(overlay, "getClientRects").mockReturnValue([{}]);
+      expect(wrapper.vm.restoreChoiceFocus(click(host))).toBe(false);
+      overlay.style.visibility = "hidden";
+      expect(wrapper.vm.restoreChoiceFocus(click(host))).toBe(true);
+    }
+  );
+
+  it("ignores a disabled choice without emitting answer or submit events", () => {
+    choice.disabled = true;
+    const focus = jest.spyOn(choice, "focus");
+    wrapper.vm.onClickOutside(click(host));
+    expect(focus).not.toHaveBeenCalled();
+    expect(wrapper.emitted("on-submit-responses")).toBeUndefined();
+  });
+});
+
+describe("QuestionsForm document keyboard lifecycle", () => {
+  it("handles Enter and auto-submit once per mount and removes each listener", () => {
+    const add = jest.spyOn(document, "addEventListener");
+    const remove = jest.spyOn(document, "removeEventListener");
+    const forms = [];
+    try {
+      for (let cycle = 0; cycle < 3; cycle++) {
+        const form = shallowMount(QuestionsForm, {
+          propsData: {
+            datasetId: "synthetic-dataset",
+            record: {
+              id: "synthetic-record",
+              isModified: true,
+              questions: [{ isSingleLabelType: true }],
+              questionAreCompletedCorrectly: () => true,
+            },
+            isSubmitting: false,
+            isDiscarding: false,
+            isDraftSaving: false,
+            enableAutoSubmitWithKeyboard: true,
+          },
+          mocks: { $platform: { isMac: false }, $t: (key) => key },
+          directives: { "click-outside": {} },
+          stubs: { BaseButton: true, QuestionsComponent: true },
+        });
+        forms.push(form);
+        const handler = form.vm.handleGlobalKeys;
+        expect(add).toHaveBeenCalledWith("keydown", handler);
+        for (const modifier of [
+          "ctrlKey",
+          "altKey",
+          "metaKey",
+          "shiftKey",
+          "isComposing",
+        ]) {
+          document.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "2",
+              code: "Digit2",
+              [modifier]: true,
+            })
+          );
+        }
+        expect(form.emitted("on-submit-responses")).toBeUndefined();
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { code: "Enter", key: "Enter" })
+        );
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { code: "Digit2", key: "2" })
+        );
+        expect(form.emitted("on-submit-responses")).toHaveLength(2);
+        form.destroy();
+        expect(remove).toHaveBeenCalledWith("keydown", handler);
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { code: "Enter", key: "Enter" })
+        );
+        expect(form.emitted("on-submit-responses")).toHaveLength(2);
+      }
+      // Destroyed forms must also remain inactive during subsequent mounts.
+      forms.forEach((form) => {
+        expect(form.emitted("on-submit-responses")).toHaveLength(2);
+      });
+    } finally {
+      forms.forEach((form) => form.destroy());
+      jest.restoreAllMocks();
+    }
   });
 });

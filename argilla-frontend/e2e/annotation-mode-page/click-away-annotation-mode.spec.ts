@@ -1,5 +1,9 @@
-import { test, expect, Page } from "@playwright/test";
-import { CLICK_AWAY_TEXT, mockClickAwayAnnotation } from "./click-away.fixture";
+import { test, expect, Locator, Page } from "@playwright/test";
+import {
+  CLICK_AWAY_TEXT,
+  ClickAwayOptions,
+  mockClickAwayAnnotation,
+} from "./click-away.fixture";
 
 type KeyObservation = {
   key: string;
@@ -14,14 +18,19 @@ declare global {
   interface Window {
     clickAwayKeys: KeyObservation[];
     clickAwayFocus: string[];
+    choiceChanges: string[];
   }
 }
 
 test.use({ viewport: { width: 1600, height: 1200 } });
 
-const openSyntheticAnnotation = async (page: Page, baseURL: string) => {
+const openSyntheticAnnotation = async (
+  page: Page,
+  baseURL: string,
+  options: ClickAwayOptions = {}
+) => {
   expect(["localhost", "127.0.0.1"]).toContain(new URL(baseURL).hostname);
-  const mocked = await mockClickAwayAnnotation(page);
+  const mocked = await mockClickAwayAnnotation(page, options);
 
   await page.goto("/sign-in");
   await page
@@ -37,8 +46,8 @@ const openSyntheticAnnotation = async (page: Page, baseURL: string) => {
   // The required Notes question keeps this record incomplete and prevents
   // auto-submit. Decision is last, so selecting an answer keeps it current.
   const decision = page.locator("[aria-label='Question: decision']");
-  await decision.getByText("Yes", { exact: true }).click();
-  await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  await decision.locator(".input-button label").first().click();
+  await expect(decision.locator(".input-button input").first()).toBeChecked();
 
   await page.evaluate(() => {
     window.clickAwayKeys = [];
@@ -259,6 +268,280 @@ test("a numeric keypad digit selects once after clicking away", async ({
   });
   await keyboard.detach();
   await expect(decision.locator("input[name='No']")).toBeChecked();
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+const observeChoiceChanges = async (page: Page) => {
+  await page.evaluate(() => {
+    window.choiceChanges = [];
+    document.addEventListener("change", (event) => {
+      const target = event.target as HTMLInputElement;
+      if (target.matches(".input-button input")) {
+        window.choiceChanges.push(target.id);
+      }
+    });
+  });
+};
+
+const reachChoiceWithTab = async (page: Page, choice: Locator) => {
+  // WebKit does not always focus a checkbox when its label is clicked.
+  // Establish a real keyboard focus before testing loss of that focus.
+  for (let step = 0; step < 30; step++) {
+    if (
+      await choice.evaluate((element) => element === document.activeElement)
+    ) {
+      break;
+    }
+    await page.keyboard.press("Tab");
+  }
+  await expect(choice).toBeFocused();
+};
+
+test("record search accepts digits without selecting answers", async ({
+  page,
+  baseURL,
+}) => {
+  const { decision, responseWrites, unexpectedRequests } =
+    await openSyntheticAnnotation(page, baseURL);
+  await observeChoiceChanges(page);
+  await page.locator(".search-area__icon.--search").click();
+  const search = page.locator(".search-area__input");
+  await expect(search).toBeFocused();
+  await page.keyboard.type("123");
+  await expect(search).toHaveValue("123");
+  await expect(search).toBeFocused();
+  await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  expect(await page.evaluate(() => window.choiceChanges)).toEqual([]);
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("label search keeps digits and forgets the previous choice focus", async ({
+  page,
+  baseURL,
+}) => {
+  const { decision, responseWrites, unexpectedRequests } =
+    await openSyntheticAnnotation(page, baseURL, { searchable: true });
+  await observeChoiceChanges(page);
+  const search = decision.locator("input.search-input");
+  await search.click();
+  await page.keyboard.type("123");
+  await expect(search).toHaveValue("123");
+  await expect(search).toBeFocused();
+  await search.fill("");
+  await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  await page.getByText(CLICK_AWAY_TEXT, { exact: true }).click();
+  await page.keyboard.press("2");
+  await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  expect(await page.evaluate(() => window.choiceChanges)).toEqual([]);
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("an open record dropdown keeps digits away from annotation choices", async ({
+  page,
+  baseURL,
+}) => {
+  const { decision, responseWrites, unexpectedRequests } =
+    await openSyntheticAnnotation(page, baseURL);
+  await observeChoiceChanges(page);
+  const menuButton = page.locator("button.record-menu__header");
+  await menuButton.click();
+  const menu = page.locator(".record-menu .dropdown__content");
+  await expect(menu).toBeVisible();
+  await expect(menuButton).toBeFocused();
+  await page.keyboard.press("2");
+  await page
+    .locator(".record-menu__content")
+    .click({ position: { x: 2, y: 2 } });
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("3");
+  await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  expect(await page.evaluate(() => window.choiceChanges)).toEqual([]);
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("Tab, Shift+Tab, Space and question arrows retain their existing behavior", async ({
+  page,
+  baseURL,
+}) => {
+  const { decision, responseWrites, unexpectedRequests } =
+    await openSyntheticAnnotation(page, baseURL);
+  const yes = decision.locator("input[name='Yes']");
+  const no = decision.locator("input[name='No']");
+  const unsure = decision.locator("input[name='Not sure']");
+  await page.getByText(CLICK_AWAY_TEXT, { exact: true }).click();
+  await expect(yes).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(no).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(yes).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(unsure).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(unsure).toBeChecked();
+  await page.keyboard.press("ArrowUp");
+  const editor = page.locator(
+    "[aria-label='Question: notes'] [contenteditable]"
+  );
+  await expect(editor).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  // Editor arrows move the caret; Escape exits editing before question navigation.
+  await expect(editor).toBeFocused();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ArrowDown");
+  await expect(yes).toBeFocused();
+  // The required Notes answer is empty, so Enter must not submit this record.
+  await page.keyboard.press("Enter");
+  await expect(unsure).toBeChecked();
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+for (const choiceType of ["multi_label_selection", "rating"] as const) {
+  test(`${choiceType} handles each digit once after background clicks`, async ({
+    page,
+    baseURL,
+  }) => {
+    const { decision, responseWrites, unexpectedRequests } =
+      await openSyntheticAnnotation(page, baseURL, { choiceType });
+    await observeChoiceChanges(page);
+    const choices = decision.locator(".input-button input");
+    await reachChoiceWithTab(page, choices.nth(0));
+    const text = page.getByText(CLICK_AWAY_TEXT, { exact: true });
+    await text.click();
+    for (const modifier of ["Control", "Alt", "Meta", "Shift"]) {
+      await page.keyboard.press(`${modifier}+2`);
+      await expect(choices.nth(0)).toBeChecked();
+    }
+    expect(await page.evaluate(() => window.choiceChanges)).toEqual([]);
+    await page.keyboard.press("2");
+    await expect(choices.nth(1)).toBeChecked();
+    await expect(choices.nth(0)).toBeChecked({
+      checked: choiceType === "multi_label_selection",
+    });
+    await text.click();
+    await page.keyboard.press("2");
+    await expect(choices.nth(1)).not.toBeChecked();
+    await text.click();
+    await page.keyboard.press("3");
+    await expect(choices.nth(2)).toBeChecked();
+    expect(await page.evaluate(() => window.choiceChanges)).toHaveLength(3);
+    await expect(
+      page.locator("[aria-label='Question: notes'] [contenteditable]")
+    ).toHaveText("");
+    expect(responseWrites).toEqual([]);
+    expect(unexpectedRequests).toEqual([]);
+  });
+}
+
+test("single-label repeated digits toggle once and expose the existing shortcut hints", async ({
+  page,
+  baseURL,
+}) => {
+  const { decision, responseWrites, unexpectedRequests } =
+    await openSyntheticAnnotation(page, baseURL);
+  await observeChoiceChanges(page);
+  await expect(decision.locator(".key")).toHaveText(["1", "2", "3"]);
+  for (const checked of [true, false, true]) {
+    await page
+      .locator(".wrapper__records__header")
+      .click({ position: { x: 4, y: 4 } });
+    await page.keyboard.press("3");
+    await expect(decision.locator("input[name='Not sure']")).toBeChecked({
+      checked,
+    });
+  }
+  expect(await page.evaluate(() => window.choiceChanges)).toEqual([
+    "decision_not-sure",
+    "decision_not-sure",
+    "decision_not-sure",
+  ]);
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("background clicks retain the selected question when several choice questions exist", async ({
+  page,
+  baseURL,
+}) => {
+  const { decision, responseWrites, unexpectedRequests } =
+    await openSyntheticAnnotation(page, baseURL, { extraChoice: true });
+  const tags = page.locator("[aria-label='Question: tags']");
+  const text = page.getByText(CLICK_AWAY_TEXT, { exact: true });
+  await tags.getByText("Alpha", { exact: true }).click();
+  await reachChoiceWithTab(page, tags.locator("input[name='Alpha']"));
+  await text.click();
+  await page.keyboard.press("2");
+  await expect(tags.locator("input[name='Beta']")).toBeChecked();
+  await expect(tags.locator("input[name='Alpha']")).toBeChecked();
+  await expect(decision.locator("input[name='Yes']")).toBeChecked();
+  await expect(decision.locator("input[name='No']")).not.toBeChecked();
+  await decision.getByText("No", { exact: true }).click();
+  await reachChoiceWithTab(page, decision.locator("input[name='Yes']"));
+  await text.click();
+  await page.keyboard.press("3");
+  await expect(decision.locator("input[name='Not sure']")).toBeChecked();
+  await expect(tags.locator("input[name='Gamma']")).not.toBeChecked();
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("leaving and reopening annotation removes the old handlers", async ({
+  page,
+  baseURL,
+}) => {
+  test.setTimeout(60000);
+  const { responseWrites, unexpectedRequests } = await openSyntheticAnnotation(
+    page,
+    baseURL
+  );
+  const annotationURL = page.url();
+  await observeChoiceChanges(page);
+  for (let cycle = 0; cycle < 3; cycle++) {
+    // Browser history exercises Nuxt route unmount/mount without a page reload.
+    await page.goBack();
+    await expect(page.locator("form.questions-form")).toHaveCount(0);
+    const before = await page.evaluate(() => window.choiceChanges.length);
+    await page.keyboard.press("2");
+    expect(await page.evaluate(() => window.choiceChanges.length)).toBe(before);
+    expect(responseWrites).toEqual([]);
+    await page.goForward();
+    await expect(page).toHaveURL(annotationURL);
+    const decision = page.locator("[aria-label='Question: decision']");
+    await decision.getByText("Yes", { exact: true }).click();
+    const afterClick = await page.evaluate(() => window.choiceChanges.length);
+    await page.getByText(CLICK_AWAY_TEXT, { exact: true }).click();
+    await page.keyboard.press("2");
+    await expect(decision.locator("input[name='No']")).toBeChecked();
+    expect(await page.evaluate(() => window.choiceChanges.length)).toBe(
+      afterClick + 1
+    );
+  }
+  expect(responseWrites).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
+});
+
+test("bulk mode does not restore the focus of a click-away choice", async ({
+  page,
+  baseURL,
+}) => {
+  const { responseWrites, unexpectedRequests } = await openSyntheticAnnotation(
+    page,
+    baseURL
+  );
+  await page
+    .getByRole("button", { name: "Switch to Bulk Mode", exact: true })
+    .click();
+  await expect(page.locator("[data-annotation-focus]")).toHaveCount(0);
+  const decision = page.locator("[aria-label='Question: decision']");
+  await decision.getByText("Yes", { exact: true }).click();
+  await observeChoiceChanges(page);
+  await page.getByText(CLICK_AWAY_TEXT, { exact: true }).click();
+  await page.keyboard.press("2");
+  expect(await page.evaluate(() => window.choiceChanges)).toEqual([]);
   expect(responseWrites).toEqual([]);
   expect(unexpectedRequests).toEqual([]);
 });

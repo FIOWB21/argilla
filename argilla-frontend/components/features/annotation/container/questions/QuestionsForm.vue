@@ -223,6 +223,28 @@ export default {
       }
     },
     focusOnFirstQuestionFromOutside(event) {
+      // WebKit can blur a checkbox on a label click without focusing the new
+      // choice. Focus the actual clicked input before its normal change handler
+      // advances the question; keyboard-generated clicks retain their focus.
+      if (
+        this.lastFocusedChoice &&
+        this.areActionsEnabled &&
+        !this.isSaving &&
+        this.record.id &&
+        this.$el.closest("[data-annotation-focus]") &&
+        event.target instanceof Element &&
+        event.target.matches('.input-button input[type="checkbox"]') &&
+        !event.target.disabled &&
+        document.activeElement === document.body &&
+        !event.defaultPrevented &&
+        event.button === 0 &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.shiftKey
+      )
+        event.target.focus({ preventScroll: true });
+
       if (this.restoreChoiceFocus(event)) return;
       if (this.lastFocusedChoice && this.$el.closest("[data-annotation-focus]"))
         return;

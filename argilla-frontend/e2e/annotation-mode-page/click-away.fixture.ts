@@ -3,7 +3,20 @@ import { mockFields } from "../common/field-api-mock";
 
 export const CLICK_AWAY_TEXT = "Synthetic record for keyboard focus testing.";
 
-export const mockClickAwayAnnotation = async (page: Page) => {
+export type ClickAwayOptions = {
+  choiceType?: "label_selection" | "multi_label_selection" | "rating";
+  searchable?: boolean;
+  extraChoice?: boolean;
+};
+
+export const mockClickAwayAnnotation = async (
+  page: Page,
+  {
+    choiceType = "label_selection",
+    searchable = false,
+    extraChoice = false,
+  }: ClickAwayOptions = {}
+) => {
   const unexpectedRequests: string[] = [];
   const responseWrites: string[] = [];
   const timestamp = "2024-01-01T00:00:00";
@@ -82,18 +95,45 @@ export const mockClickAwayAnnotation = async (page: Page) => {
           required: true,
           settings: { type: "text", use_markdown: false },
         },
+        ...(extraChoice
+          ? [
+              {
+                id: "00000000-0000-4000-8000-000000000007",
+                name: "tags",
+                title: "Tags",
+                required: false,
+                settings: {
+                  type: "multi_label_selection",
+                  options: [
+                    { value: "alpha", text: "Alpha" },
+                    { value: "beta", text: "Beta" },
+                    { value: "gamma", text: "Gamma" },
+                  ],
+                },
+              },
+            ]
+          : []),
         {
           id: "00000000-0000-4000-8000-000000000004",
           name: "decision",
           title: "Decision",
           required: true,
           settings: {
-            type: "label_selection",
-            options: [
-              { value: "yes", text: "Yes" },
-              { value: "no", text: "No" },
-              { value: "not-sure", text: "Not sure" },
-            ],
+            type: choiceType,
+            options:
+              choiceType === "rating"
+                ? [1, 2, 3].map((value) => ({ value }))
+                : [
+                    { value: "yes", text: "Yes" },
+                    { value: "no", text: "No" },
+                    { value: "not-sure", text: "Not sure" },
+                    ...(searchable
+                      ? Array.from({ length: 12 }, (_, index) => ({
+                          value: `extra-${index + 4}`,
+                          text: `Extra ${index + 4}`,
+                        }))
+                      : []),
+                  ],
           },
         },
       ].map((question) => ({
